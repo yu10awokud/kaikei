@@ -1,0 +1,298 @@
+<script>
+// ===== 状態 =====
+var state = {
+  year:  new Date().getFullYear(),
+  month: new Date().getMonth() + 1, // 1〜12
+  settings: { '時給A': 4200, '時給B': 3500, '生徒A名': '生徒A', '生徒B名': '生徒B' },
+  tutorRecords: [],
+  swingRecords: [],
+  selectedDate: null
+};
+
+// ===== ユーティリティ =====
+function yen(n) {
+  n = Math.round(Number(n) || 0);
+  var s = (n < 0 ? '-' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
+  return s;
+}
+function diffText(n) {
+  n = Math.round(Number(n) || 0);
+  var sign = n > 0 ? '+' : (n < 0 ? '-' : '±');
+  return sign + '¥' + Math.abs(n).toLocaleString('ja-JP');
+}
+function diffClass(n) { return n > 0 ? 'plus' : (n < 0 ? 'minus' : ''); }
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function loading(on) { document.getElementById('loading').classList.toggle('show', on); }
+
+// google.script.run を Promise で扱う
+function call(fn, args) {
+  return new Promise(function (resolve, reject) {
+    var runner = google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject);
+    runner[fn].apply(runner, args || []);
+  });
+}
+
+// ===== 初期化 =====
+document.addEventListener('DOMContentLoaded', function () {
+  // タブ切り替え
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      t.classList.add('active');
+      document.getElementById(t.dataset.tab).classList.add('active');
+    });
+  });
+
+  document.getElementById('prevMonth').addEventListener('click', function () { changeMonth(-1); });
+  document.getElementById('nextMonth').addEventListener('click', function () { changeMonth(1); });
+
+  document.getElementById('swingAddBtn').addEventListener('click', addSwing);
+  document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
+
+  document.getElementById('modalAddBtn').addEventListener('click', addTutorFromModal);
+  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', function (e) {
+    if (e.target.id === 'modalOverlay') closeModal();
+  });
+
+  // スイングの日付デフォルト＝今日
+  document.getElementById('swingDate').value = isoToday();
+
+  loadSettings().then(refreshAll);
+});
+
+function isoToday() {
+  var d = new Date();
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+function changeMonth(delta) {
+  var m = state.month + delta;
+  var y = state.year;
+  if (m < 1) { m = 12; y--; }
+  if (m > 12) { m = 1; y++; }
+  state.month = m; state.year = y;
+  refreshAll();
+}
+
+// ===== データ読み込み＆描画 =====
+function refreshAll() {
+  loading(true);
+  document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
+  return Promise.all([
+    call('getDashboard', [state.year, state.month]),
+    call('getTutorRecords', [state.year, state.month]),
+    call('getSwingRecords', [state.year, state.month])
+  ]).then(function (res) {
+    renderDashboard(res[0]);
+    state.tutorRecords = res[1];
+    state.swingRecords = res[2];
+    renderCalendar();
+    renderSwing();
+    loading(false);
+  }).catch(function (err) {
+    loading(false);
+    alert('読み込みエラー: ' + err.message);
+  });
+}
+
+function loadSettings() {
+  return call('getSettings').then(function (s) {
+    state.settings = s;
+    // 設定フォームに反映
+    document.getElementById('setNameA').value = s['生徒A名'];
+    document.getElementById('setNameB').value = s['生徒B名'];
+    document.getElementById('setRateA').value = s['時給A'];
+    document.getElementById('setRateB').value = s['時給B'];
+    // ラベル類
+    document.getElementById('legendA').textContent = s['生徒A名'] + '（¥' + Number(s['時給A']).toLocaleString() + '/h）';
+    document.getElementById('legendB').textContent = s['生徒B名'] + '（¥' + Number(s['時給B']).toLocaleString() + '/h）';
+    document.querySelector('#modalStudent option[value="A"]').textContent = s['生徒A名'];
+    document.querySelector('#modalStudent option[value="B"]').textContent = s['生徒B名'];
+  });
+}
+
+// ===== ダッシュボード =====
+function renderDashboard(d) {
+  document.getElementById('dashCurrentTotal').textContent = yen(d.current.total);
+  document.getElementById('dashPrevTotal').textContent = yen(d.previous.total);
+
+  var dt = document.getElementById('dashDiffTotal');
+  dt.textContent = '前月比 ' + diffText(d.diff.total);
+  dt.className = 'card-diff ' + diffClass(d.diff.total);
+
+  document.getElementById('dashTutor').textContent = yen(d.current.tutor);
+  document.getElementById('dashSwing').textContent = yen(d.current.swing);
+
+  setDiff('dashDiffTutor', d.diff.tutor);
+  setDiff('dashDiffSwing', d.diff.swing);
+
+  document.getElementById('dashHoursA').textContent = state.settings['生徒A名'] + ': ' + d.current.hoursA + 'h';
+  document.getElementById('dashHoursB').textContent = state.settings['生徒B名'] + ': ' + d.current.hoursB + 'h';
+}
+function setDiff(id, n) {
+  var el = document.getElementById(id);
+  el.textContent = diffText(n);
+  el.className = 'bd-diff ' + diffClass(n);
+}
+
+// ===== カレンダー =====
+function renderCalendar() {
+  var grid = document.getElementById('calendarGrid');
+  grid.innerHTML = '';
+
+  var first = new Date(state.year, state.month - 1, 1);
+  var startWeekday = first.getDay(); // 0=日
+  var daysInMonth = new Date(state.year, state.month, 0).getDate();
+
+  // 日ごとに記録をまとめる
+  var byDay = {};
+  var monthTotal = 0;
+  state.tutorRecords.forEach(function (r) {
+    var day = parseInt(r.date.split('-')[2], 10);
+    if (!byDay[day]) byDay[day] = [];
+    byDay[day].push(r);
+    monthTotal += r.amount;
+  });
+
+  // 先頭の空セル
+  for (var i = 0; i < startWeekday; i++) {
+    var e = document.createElement('div');
+    e.className = 'day empty';
+    grid.appendChild(e);
+  }
+
+  var todayIso = isoToday();
+  for (var d = 1; d <= daysInMonth; d++) {
+    var cell = document.createElement('div');
+    cell.className = 'day';
+    var iso = state.year + '-' + pad(state.month) + '-' + pad(d);
+    if (iso === todayIso) cell.className += ' today';
+
+    var html = '<span class="num">' + d + '</span>';
+    (byDay[d] || []).forEach(function (r) {
+      var cls = r.student === 'A' ? 'a' : 'b';
+      html += '<span class="pill ' + cls + '">' + r.hours + 'h</span>';
+    });
+    cell.innerHTML = html;
+    cell.addEventListener('click', (function (iso) { return function () { openModal(iso); }; })(iso));
+    grid.appendChild(cell);
+  }
+
+  document.getElementById('tutorMonthSum').textContent = '今月の家庭教師収入: ' + yen(monthTotal);
+}
+
+// ===== モーダル（勤務記録の入力） =====
+function openModal(iso) {
+  state.selectedDate = iso;
+  document.getElementById('modalDate').textContent = iso;
+  document.getElementById('modalHours').value = '';
+  document.getElementById('modalMemo').value = '';
+  renderModalRecords();
+  document.getElementById('modalOverlay').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+}
+function renderModalRecords() {
+  var box = document.getElementById('modalRecords');
+  var recs = state.tutorRecords.filter(function (r) { return r.date === state.selectedDate; });
+  if (recs.length === 0) {
+    box.innerHTML = '<p style="color:#6b7280;font-size:13px;">この日の記録はまだありません。</p>';
+    return;
+  }
+  box.innerHTML = recs.map(function (r) {
+    var name = r.student === 'A' ? state.settings['生徒A名'] : state.settings['生徒B名'];
+    var cls = r.student === 'A' ? 'a' : 'b';
+    var tagStyle = r.student === 'A' ? 'background:#2563eb' : 'background:#16a34a';
+    return '<div class="modal-record">' +
+      '<span class="tag" style="' + tagStyle + '">' + name + '</span>' +
+      '<span class="grow">' + r.hours + 'h × ¥' + r.rate.toLocaleString() + ' = ' + yen(r.amount) + '</span>' +
+      '<button class="del-btn" onclick="deleteTutor(\'' + r.id + '\')">削除</button>' +
+      '</div>';
+  }).join('');
+}
+function addTutorFromModal() {
+  var hours = parseFloat(document.getElementById('modalHours').value);
+  if (!hours || hours <= 0) { alert('時間を入力してください'); return; }
+  var rec = {
+    date: state.selectedDate,
+    student: document.getElementById('modalStudent').value,
+    hours: hours,
+    memo: document.getElementById('modalMemo').value
+  };
+  loading(true);
+  call('saveTutorRecord', [rec]).then(function () {
+    return refreshAll();
+  }).then(function () {
+    renderModalRecords();
+    document.getElementById('modalHours').value = '';
+    document.getElementById('modalMemo').value = '';
+  });
+}
+function deleteTutor(id) {
+  if (!confirm('この記録を削除しますか？')) return;
+  loading(true);
+  call('deleteTutorRecord', [id]).then(function () {
+    return refreshAll();
+  }).then(renderModalRecords);
+}
+
+// ===== スイング投資 =====
+function renderSwing() {
+  var body = document.getElementById('swingTableBody');
+  var total = 0;
+  body.innerHTML = state.swingRecords.map(function (r) {
+    total += r.profit;
+    var cls = diffClass(r.profit);
+    return '<tr>' +
+      '<td>' + r.date + '</td>' +
+      '<td class="' + cls + '">' + diffText(r.profit) + '</td>' +
+      '<td>' + (r.memo || '') + '</td>' +
+      '<td><button class="del-btn" onclick="deleteSwing(\'' + r.id + '\')">削除</button></td>' +
+      '</tr>';
+  }).join('');
+  var sumEl = document.getElementById('swingMonthSum');
+  sumEl.textContent = '今月の損益: ' + diffText(total);
+  sumEl.className = 'month-sum ' + diffClass(total);
+}
+function addSwing() {
+  var date = document.getElementById('swingDate').value;
+  var profit = parseFloat(document.getElementById('swingProfit').value);
+  if (!date) { alert('日付を入力してください'); return; }
+  if (isNaN(profit)) { alert('損益を入力してください'); return; }
+  var rec = { date: date, profit: profit, memo: document.getElementById('swingMemo').value };
+  loading(true);
+  call('saveSwingRecord', [rec]).then(function () {
+    document.getElementById('swingProfit').value = '';
+    document.getElementById('swingMemo').value = '';
+    return refreshAll();
+  });
+}
+function deleteSwing(id) {
+  if (!confirm('この記録を削除しますか？')) return;
+  loading(true);
+  call('deleteSwingRecord', [id]).then(refreshAll);
+}
+
+// ===== 設定 =====
+function saveSettings() {
+  var s = {
+    '生徒A名': document.getElementById('setNameA').value || '生徒A',
+    '生徒B名': document.getElementById('setNameB').value || '生徒B',
+    '時給A': parseFloat(document.getElementById('setRateA').value) || 0,
+    '時給B': parseFloat(document.getElementById('setRateB').value) || 0
+  };
+  loading(true);
+  call('saveSettings', [s]).then(function () {
+    return loadSettings();
+  }).then(function () {
+    loading(false);
+    alert('設定を保存しました');
+    refreshAll();
+  });
+}
+</script>
