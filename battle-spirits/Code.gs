@@ -389,6 +389,94 @@ function getBackImage() {
   return f ? fileToDataUrl_(f) : '';
 }
 
+// ---- 高速モード（共有フォルダ → Drive の CDN URL を使う）-------------------
+//  base64 は「サーバーが1枚ずつ読み込む」ため遅い。フォルダを公開しておけば、
+//  ファイルID だけ返して、ブラウザが Google CDN から並列で直接取得できる（高速）。
+
+var IMG_ID_TTL_ = 21600; // 索引キャッシュ 6時間
+
+/** 画像フォルダが「リンクを知っている全員（閲覧）」等で公開されているか判定してモードを返す。 */
+function getImageConfig() {
+  var root = getImageRoot_();
+  var mode = 'base64';
+  try {
+    var acc = root.getSharingAccess();
+    if (acc === DriveApp.Access.ANYONE || acc === DriveApp.Access.ANYONE_WITH_LINK) mode = 'cdn';
+  } catch (e) {}
+  return { mode: mode };
+}
+
+/** 画像フォルダを「リンクを知っている全員（閲覧）」で公開する（1回押せばOK）。 */
+function publishImageFolder() {
+  var root = getImageRoot_();
+  root.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  // 既存の直下サブフォルダにも適用（フォルダ内のファイルは親の権限を継承する）。
+  var fs = root.getFolders();
+  while (fs.hasNext()) {
+    try { fs.next().setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+  }
+  return { ok: true, mode: getImageConfig().mode };
+}
+
+/** プレフィックスのサブフォルダの {ファイル名(拡張子なし): fileId} を返す（CacheServiceでキャッシュ）。 */
+function cardIndexForPrefix_(prefix, force) {
+  var cache = CacheService.getScriptCache();
+  var key = 'bsidx_' + prefix;
+  if (!force) {
+    var cached = cache.get(key);
+    if (cached) { try { return JSON.parse(cached); } catch (e) {} }
+  }
+  var root = getImageRoot_();
+  var sub = getSubfolder_(root, prefix);
+  var map = {};
+  if (sub) {
+    var it = sub.getFiles();
+    while (it.hasNext()) { var f = it.next(); var b = stripExt_(f.getName()); if (!(b in map)) map[b] = f.getId(); }
+  }
+  try { cache.put(key, JSON.stringify(map), IMG_ID_TTL_); } catch (e) {}
+  return map;
+}
+
+/** 安全網：ルート直下＋直下サブフォルダの {ファイル名: fileId}（プレフィックス外の置き場所用）。 */
+function globalIndexIds_() {
+  var root = getImageRoot_();
+  var map = {};
+  var add = function (folder) {
+    var it = folder.getFiles();
+    while (it.hasNext()) { var f = it.next(); var b = stripExt_(f.getName()); if (!(b in map)) map[b] = f.getId(); }
+  };
+  add(root);
+  var fs = root.getFolders();
+  while (fs.hasNext()) add(fs.next());
+  return map;
+}
+
+/** カードID配列 → {cardId: fileId}。バイト読み込みをしないので高速（CDNモード用）。 */
+function getCardImageIds(cardIds) {
+  var out = {};
+  if (!cardIds || !cardIds.length) return out;
+  var byPrefix = {};
+  cardIds.forEach(function (id) {
+    id = String(id);
+    if (id in out) return;
+    out[id] = '';
+    var p = imagePrefix_(id);
+    (byPrefix[p] = byPrefix[p] || []).push(id);
+  });
+  var globalIdx = null;
+  Object.keys(byPrefix).forEach(function (p) {
+    var idx = cardIndexForPrefix_(p, false);
+    var missing = byPrefix[p].some(function (id) { return !idx[id]; });
+    if (missing) idx = cardIndexForPrefix_(p, true); // 取りこぼし→作り直し（新カード対応）
+    byPrefix[p].forEach(function (id) {
+      var fid = idx[id];
+      if (!fid) { if (!globalIdx) globalIdx = globalIndexIds_(); fid = globalIdx[id] || ''; }
+      if (fid) out[id] = fid;
+    });
+  });
+  return out;
+}
+
 // ===========================================================================
 // コレクション（デッキレシピの保存）
 // ===========================================================================

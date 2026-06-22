@@ -243,6 +243,16 @@
       <p class="hint">裏面は <code>Battle Spirits Images / back / back.png</code> を自動で使用します（このフォルダには1枚だけ入れてください）。</p>
       <div id="backPreview" class="back-preview"></div>
       <hr>
+      <h3>画像の読み込み速度</h3>
+      <p class="hint">画像フォルダ <code>Battle Spirits Images</code> を<b>リンク共有（閲覧可）</b>にすると、
+        Google のCDNから直接・並列で読み込む<b>高速モード</b>になります（現在: <b id="imgModeLabel">…</b>）。<br>
+        下のボタンか、Driveでフォルダを「リンクを知っている全員＝閲覧者」に共有してください
+        （カード画像が公開リンクで見える状態になります）。</p>
+      <div class="row">
+        <button id="btnPublishImages" class="mini">画像を高速モードにする（フォルダを公開）</button>
+        <span id="publishStatus" class="status"></span>
+      </div>
+      <hr>
       <h3>ランダム性について（先攻後攻・シャッフルの証明）</h3>
       <div class="rand-note">
         <p>このアプリの抽選・シャッフルは、すべて<b>サーバー側（Google Apps Script）</b>で実行され、
@@ -302,21 +312,42 @@
   function requireSeat(){if(!mySeat()||!myToken()){toast('先に着席してください',true);return false;}return true;}
 
   // =========================================================================
-  // 画像：必要なカードIDだけ getCardImages でまとめて取得（遅延読み込み）
-  //  - フォルダ構成（prefix/カードID.*）はサーバが解決する。
+  // 画像：必要なカードIDだけまとめて取得（遅延読み込み）。
+  //  - 高速モード(cdn): サーバは fileId だけ返し、ブラウザが Google CDN から並列取得。
+  //  - 通常モード(base64): サーバが base64 にして返す（フォルダ未共有時の保険）。
   //  - 裏面は getBackImage（back/back.png）を1回だけ取得。
   // =========================================================================
+  var IMG_MODE='base64';                 // 起動時に getImageConfig で 'cdn' か 'base64' に決定
   var IMG_CACHE={}, IMG_PENDING={}, IMG_ELS={}, flushTimer=null, BACK_IMG='';
   function transparentPx(){return 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';}
+  function cdnUrl(fileId,w){return 'https://lh3.googleusercontent.com/d/'+fileId+'=w'+(w||400);}
+  function thumbUrl(fileId,w){return 'https://drive.google.com/thumbnail?id='+fileId+'&sz=w'+(w||400);}
 
-  function setCardImg(img,cardId){
-    if(!cardId){img.src=transparentPx();return;}
+  function setCardImg(img,cardId,size){
+    if(!cardId){img.onerror=null;img.src=transparentPx();return;}
     cardId=String(cardId);
-    if(IMG_CACHE[cardId]!==undefined){img.src=IMG_CACHE[cardId]||transparentPx();return;}
-    img.src=transparentPx();
     img.setAttribute('data-cid',cardId);
+    img.setAttribute('data-sz',size||400);
+    var rec=IMG_CACHE[cardId];
+    if(rec!==undefined){applyImg(img,rec,size);return;}
+    img.onerror=null;img.src=transparentPx();
     (IMG_ELS[cardId]=IMG_ELS[cardId]||[]).push(img);
     queueImg(cardId);
+  }
+  // rec: cdnモードでは fileId、base64モードでは dataURI（''＝画像なし）
+  function applyImg(img,rec,size){
+    if(!rec){img.onerror=null;img.src=transparentPx();return;}
+    if(IMG_MODE!=='cdn'){img.onerror=null;img.src=rec;return;} // base64
+    var w=size||parseInt(img.getAttribute('data-sz'),10)||400, stage=0;
+    img.onerror=function(){
+      stage++;
+      if(stage===1){img.src=thumbUrl(rec,w);}                 // CDN第2候補
+      else if(stage===2){                                     // 最後の保険：base64で取り直す
+        img.onerror=null;
+        gsRun('getCardImage',img.getAttribute('data-cid')).then(function(d){img.src=d||transparentPx();}).catch(function(){img.src=transparentPx();});
+      }else{img.onerror=null;img.src=transparentPx();}
+    };
+    img.src=cdnUrl(rec,w);
   }
   function queueImg(cardId){
     cardId=String(cardId);
@@ -330,11 +361,12 @@
     var ids=Object.keys(IMG_PENDING);
     if(!ids.length)return;
     IMG_PENDING={};
-    gsRun('getCardImages',ids).then(function(map){
+    var fn=(IMG_MODE==='cdn')?'getCardImageIds':'getCardImages';
+    gsRun(fn,ids).then(function(map){
       ids.forEach(function(id){
-        var d=(map&&map[id])||'';
-        IMG_CACHE[id]=d;
-        (IMG_ELS[id]||[]).forEach(function(im){im.src=d||transparentPx();});
+        var rec=(map&&map[id])||'';
+        IMG_CACHE[id]=rec;
+        (IMG_ELS[id]||[]).forEach(function(im){applyImg(im,rec);});
         IMG_ELS[id]=[];
       });
     }).catch(function(){
@@ -913,7 +945,7 @@
   // --- カード詳細プレビュー（画像のみ） ---
   function showCardPreview(c){
     var cid=c.cardId||c.id;
-    var img=el('img','cp-img-only');setCardImg(img,cid);
+    var img=el('img','cp-img-only');setCardImg(img,cid,800);
     var foot=el('div','row');var cl=el('button','mini','閉じる');cl.onclick=hideModal;foot.appendChild(cl);
     var wrap=el('div');wrap.appendChild(img);wrap.appendChild(foot);
     showModal(wrap);
@@ -1034,7 +1066,19 @@
     var box=$('#backPreview');if(!box)return;box.innerHTML='';
     if(BACK_IMG){var img=el('img');img.src=BACK_IMG;box.appendChild(img);}
     else box.appendChild(el('div','hint','back/back.png が見つかりません（フォルダに1枚入れてください）。'));
+    renderImgMode();
   }
+  function renderImgMode(){var s=$('#imgModeLabel');if(s)s.textContent=(IMG_MODE==='cdn'?'高速モード（CDN）':'通常モード（base64・やや遅い）');}
+  $('#btnPublishImages').onclick=function(){
+    if(!confirm('画像フォルダをリンク共有（閲覧可）にします。カード画像が公開リンクで見える状態になりますが、よろしいですか?'))return;
+    $('#publishStatus').textContent='設定中...';
+    gsRun('publishImageFolder').then(function(r){
+      IMG_MODE=(r&&r.mode)||IMG_MODE;
+      IMG_CACHE={};IMG_PENDING={};IMG_ELS={};lastBoardSig=null;
+      $('#publishStatus').textContent='完了（'+(IMG_MODE==='cdn'?'高速モード':'通常モード')+'）';
+      renderImgMode();if(G)render();
+    }).catch(function(e){$('#publishStatus').textContent='';fail(e);});
+  };
   $('#btnReset').onclick=function(){
     var pin=$('#resetPin').value;
     if(!pin){toast('リセットPINを入力',true);return;}
@@ -1043,11 +1087,17 @@
   };
 
   // =========================================================================
-  // 起動
+  // 起動：まず画像モード（共有なら高速CDN）を判定してから読み込み開始。
   // =========================================================================
-  loadBackImage();
-  gsRun('gameExists').then(function(r){
-    if(!r.exists)return gsRun('createGame','').then(function(){return null;});
+  gsRun('getImageConfig').then(function(c){
+    var m=(c&&c.mode)||'base64';
+    if(m!==IMG_MODE){IMG_MODE=m;IMG_CACHE={};IMG_PENDING={};IMG_ELS={};lastBoardSig=null;}
+    renderImgMode();
+  }).catch(function(){}).then(function(){
+    loadBackImage();
+    return gsRun('gameExists');
+  }).then(function(r){
+    if(!r||!r.exists)return gsRun('createGame','');
   }).then(function(){loadCards();refresh();startPolling();})
     .catch(function(e){console.warn(e);loadCards();refresh();startPolling();});
   </script>
