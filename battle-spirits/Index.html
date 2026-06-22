@@ -415,8 +415,25 @@
   }
   function hideMenu(){$('#popMenu').classList.add('hidden');}
   document.addEventListener('click',function(e){if(!e.target.closest('#popMenu'))hideMenu();});
-  function showModal(node){var body=$('#modalBody');body.innerHTML='';body.appendChild(node);$('#modalBack').classList.remove('hidden');}
-  function hideModal(){$('#modalBack').classList.add('hidden');}
+  // モーダルはスタック管理：詳細などを上に重ねたとき、閉じると直前の画面に戻る。
+  var MODAL_STACK=[];
+  function showModal(node){
+    var body=$('#modalBody');
+    var open=!$('#modalBack').classList.contains('hidden');
+    if(open)MODAL_STACK.push(Array.prototype.slice.call(body.childNodes)); // 現在の中身を退避
+    body.innerHTML='';body.appendChild(node);body.scrollTop=0;
+    $('#modalBack').classList.remove('hidden');
+  }
+  function hideModal(){
+    var body=$('#modalBody');
+    if(MODAL_STACK.length){ // 直前の画面に戻る
+      var prev=MODAL_STACK.pop();
+      body.innerHTML='';prev.forEach(function(n){body.appendChild(n);});body.scrollTop=0;
+      return;
+    }
+    $('#modalBack').classList.add('hidden');body.innerHTML='';
+  }
+  function closeAllModals(){MODAL_STACK=[];$('#modalBack').classList.add('hidden');$('#modalBody').innerHTML='';}
   $('#modalBack').onclick=function(e){if(e.target.id==='modalBack')hideModal();};
 
   // =========================================================================
@@ -1009,7 +1026,13 @@
     setTimeout(function(){inp.focus();},50);
   };
 
-  function loadCollections(){gsRun('getCollections').then(renderCollections).catch(fail);}
+  // コレクションのサムネ（各デッキ先頭カード）を最優先で先読みする。
+  function prefetchCollectionThumbs(list){
+    var ids=[];
+    (list||[]).forEach(function(c){var e=parseDeckText(c.deckText);if(e.length&&e[0].cardId)ids.push(e[0].cardId);});
+    if(ids.length)prefetchCards(ids);
+  }
+  function loadCollections(){gsRun('getCollections').then(function(list){prefetchCollectionThumbs(list);renderCollections(list);}).catch(fail);}
   function renderCollections(list){
     var box=$('#collList');box.innerHTML='';
     if(!list||!list.length){box.appendChild(el('div','hint','まだ保存されたデッキはありません。'));return;}
@@ -1094,6 +1117,8 @@
     if(m!==IMG_MODE){IMG_MODE=m;IMG_CACHE={};IMG_PENDING={};IMG_ELS={};lastBoardSig=null;}
     renderImgMode();
   }).catch(function(){}).then(function(){
+    // コレクションのサムネを最優先で先読み（盤面画像より先にキューへ）。
+    gsRun('getCollections').then(function(list){prefetchCollectionThumbs(list);}).catch(function(){});
     loadBackImage();
     return gsRun('gameExists');
   }).then(function(r){
