@@ -175,6 +175,19 @@
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0e1217;
     border:1px solid var(--accent);color:var(--ink);padding:10px 16px;border-radius:8px;z-index:400}
   .toast.bad{border-color:var(--bad)}
+
+  /* ゲートオープン！界放！ ローディング画面 */
+  .kaihou{position:fixed;inset:0;z-index:600;background:rgba(8,10,14,.93);
+    display:flex;align-items:center;justify-content:center}
+  .kaihou-inner{text-align:center;max-width:90vw}
+  .kaihou-title{font-size:30px;font-weight:900;letter-spacing:2px;margin-bottom:18px;
+    background:linear-gradient(90deg,#ffd166,#3da9fc,#3ad29f);-webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:kpulse 1.2s ease-in-out infinite}
+  @keyframes kpulse{0%,100%{transform:scale(1);filter:drop-shadow(0 0 6px rgba(61,169,252,.3))}50%{transform:scale(1.06);filter:drop-shadow(0 0 18px rgba(61,169,252,.6))}}
+  .kaihou-bar{width:min(520px,82vw);height:16px;background:#1b2330;border:1px solid var(--line);border-radius:99px;overflow:hidden;margin:0 auto}
+  .kaihou-fill{height:100%;width:0;background:linear-gradient(90deg,#3da9fc,#3ad29f);transition:width .25s ease}
+  .kaihou-pct{margin-top:10px;font-weight:800;font-size:18px;color:var(--ink)}
+  .kaihou-sub{margin-top:6px;color:var(--muted);font-size:12px}
   </style>
 </head>
 <body>
@@ -222,7 +235,7 @@
         <div class="row">
           <button id="btnValidateDeck" class="mini">枚数チェック</button>
           <button id="btnSubmitDeck">このデッキを提出</button>
-          <button id="btnDealStart" class="primary">開始処理</button>
+          <button id="btnGameStart" class="primary">ゲームスタート</button>
           <button id="btnSaveColl" class="mini">保存（コレクション）</button>
           <button id="btnClearDeck" class="mini">クリア</button>
         </div>
@@ -277,6 +290,14 @@
     </div>
   </section>
 
+  <div id="kaihou" class="kaihou hidden">
+    <div class="kaihou-inner">
+      <div class="kaihou-title">ゲートオープン！ 界放！</div>
+      <div class="kaihou-bar"><div id="kaihouFill" class="kaihou-fill"></div></div>
+      <div id="kaihouPct" class="kaihou-pct">0%</div>
+      <div id="kaihouSub" class="kaihou-sub">対戦カードを読み込んでいます…</div>
+    </div>
+  </div>
   <div id="popMenu" class="pop-menu hidden"></div>
   <div id="modalBack" class="modal-back hidden"><div id="modalBody" class="modal-body"></div></div>
   <div id="toast" class="toast hidden"></div>
@@ -327,7 +348,7 @@
     if(!cardId){img.onerror=null;img.src=transparentPx();return;}
     cardId=String(cardId);
     img.setAttribute('data-cid',cardId);
-    img.setAttribute('data-sz',size||400);
+    img.setAttribute('data-sz',size||500);
     var rec=IMG_CACHE[cardId];
     if(rec!==undefined){applyImg(img,rec,size);return;}
     img.onerror=null;img.src=transparentPx();
@@ -338,7 +359,7 @@
   function applyImg(img,rec,size){
     if(!rec){img.onerror=null;img.src=transparentPx();return;}
     if(IMG_MODE!=='cdn'){img.onerror=null;img.src=rec;return;} // base64
-    var w=size||parseInt(img.getAttribute('data-sz'),10)||400, stage=0;
+    var w=size||parseInt(img.getAttribute('data-sz'),10)||500, stage=0;
     img.onerror=function(){
       stage++;
       if(stage===1){img.src=thumbUrl(rec,w);}                 // CDN第2候補
@@ -470,10 +491,59 @@
   function refresh(){
     return gsRun('getState',mySeat(),myToken()).then(function(s){
       if(!s||!s.exists){renderNoGame();return;}
-      G=s;render();
+      G=s;render();maybeKaihou();
     }).catch(function(e){console.warn(e);});
   }
   function startPolling(){if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(refresh,1600);}
+
+  // =========================================================================
+  // ゲームスタート → 界放（両者準備で発火。画像を先読みしてから配布）
+  // =========================================================================
+  var kaihouRunning=false;
+  function maybeKaihou(){
+    if(!G||!G.you)return;
+    var meP=G.players[G.you];if(!meP)return;
+    var opp=G.you==='A'?'B':'A';
+    var oppClaimed=G.seats[opp]&&G.seats[opp].claimed;
+    var oppReady=G.players[opp]&&G.players[opp].ready;
+    var go=meP.ready&&(oppReady||!oppClaimed); // 相手がいる場合は相手の準備も待つ
+    if(go&&!meP.started&&!kaihouRunning){kaihouRunning=true;runKaihou();}
+  }
+  function showKaihou(pct,sub){
+    var k=$('#kaihou');k.classList.remove('hidden');
+    $('#kaihouFill').style.width=Math.max(0,Math.min(100,pct))+'%';
+    $('#kaihouPct').textContent=Math.round(pct)+'%';
+    if(sub!=null)$('#kaihouSub').textContent=sub;
+  }
+  function hideKaihou(){$('#kaihou').classList.add('hidden');}
+  function runKaihou(){
+    showKaihou(0,'対戦カードを読み込んでいます…');
+    gsRun('getMatchManifest',mySeat(),myToken()).then(function(r){
+      var ids=(r&&r.ids)||[];
+      pruneCache(ids); // この対戦で使うカードだけ残す
+      var need=ids.filter(function(id){return id&&IMG_CACHE[String(id)]===undefined;});
+      loadWithProgress(need,function(){
+        showKaihou(100,'界放完了。配布します…');
+        gsRun('dealStart',mySeat(),myToken()).then(function(){
+          setTimeout(function(){hideKaihou();kaihouRunning=false;switchTab('play');refresh();},350);
+        }).catch(function(e){hideKaihou();kaihouRunning=false;fail(e);});
+      });
+    }).catch(function(e){hideKaihou();kaihouRunning=false;fail(e);});
+  }
+  function loadWithProgress(ids,done){
+    var total=ids.length,loaded=0;
+    if(!total){showKaihou(100);done();return;}
+    var CHUNK=15,i=0,fn=(IMG_MODE==='cdn')?'getCardImageIds':'getCardImages';
+    function next(){
+      if(i>=total){done();return;}
+      var chunk=ids.slice(i,i+CHUNK);i+=CHUNK;
+      gsRun(fn,chunk).then(function(map){
+        chunk.forEach(function(id){var rec=(map&&map[id])||'';IMG_CACHE[id]=rec;(IMG_ELS[id]||[]).forEach(function(im){applyImg(im,rec);});IMG_ELS[id]=[];});
+        loaded+=chunk.length;showKaihou(loaded/total*100);next();
+      }).catch(function(){loaded+=chunk.length;showKaihou(loaded/total*100);next();});
+    }
+    next();
+  }
   function renderNoGame(){
     $('#oppArea').innerHTML='';
     $('#meArea').innerHTML='<div class="hint" style="padding:20px">ゲームが未作成です。「設定」タブの初期化、または「デッキ」から開始してください。</div>';
@@ -962,7 +1032,7 @@
   // --- カード詳細プレビュー（画像のみ） ---
   function showCardPreview(c){
     var cid=c.cardId||c.id;
-    var img=el('img','cp-img-only');setCardImg(img,cid,800);
+    var img=el('img','cp-img-only');setCardImg(img,cid);
     var foot=el('div','row');var cl=el('button','mini','閉じる');cl.onclick=hideModal;foot.appendChild(cl);
     var wrap=el('div');wrap.appendChild(img);wrap.appendChild(foot);
     showModal(wrap);
@@ -992,16 +1062,14 @@
     if(!requireSeat())return;
     gsRun('submitDeck',mySeat(),myToken(),parseDeck()).then(function(){toast('デッキを提出しました');refresh();}).catch(fail);
   };
-  $('#btnDealStart').onclick=function(){
+  // ゲームスタート：デッキを提出して「準備完了」にする。両者そろうと界放（先読み→配布）が走る。
+  $('#btnGameStart').onclick=function(){
     if(!requireSeat())return;
-    if(!confirm('開始処理を行います。よろしいですか?'))return;
-    var ids=deckCardIds();
-    gsRun('submitDeck',mySeat(),myToken(),parseDeck()).then(function(){return gsRun('dealStart',mySeat(),myToken());}).then(function(){
-      toast('開始処理が完了しました');
-      // このデッキの画像を先読み（＋他デッキのキャッシュは破棄して軽量化）。
-      pruneCache(ids);prefetchCards(ids);
-      switchTab('play');refresh();
-    }).catch(fail);
+    if(!parseDeck().length){toast('デッキが空です',true);return;}
+    gsRun('submitDeck',mySeat(),myToken(),parseDeck())
+      .then(function(){return gsRun('setReady',mySeat(),myToken(),true);})
+      .then(function(){toast('ゲームスタート！相手の準備を待っています…');switchTab('play');refresh();})
+      .catch(fail);
   };
   $('#btnClearDeck').onclick=function(){$('#deckText').value='';$('#deckStatus').textContent='';};
 

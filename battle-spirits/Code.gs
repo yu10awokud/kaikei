@@ -325,52 +325,123 @@ function fileToDataUrl_(file) {
   }
 }
 
+var DEFAULT_IMG_W = 500;
+
+/** URL配列を OAuth トークン付きで「並列」取得し {key: dataURI} を返す（fetchAll）。 */
+function fetchAllToDataUrls_(items) {
+  var out = {};
+  if (!items.length) return out;
+  var token = ScriptApp.getOAuthToken();
+  var reqs = items.map(function (it) {
+    return { url: it.url, headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true };
+  });
+  var resps;
+  try { resps = UrlFetchApp.fetchAll(reqs); } catch (e) { return out; }
+  for (var i = 0; i < resps.length; i++) {
+    try {
+      var r = resps[i];
+      if (r.getResponseCode() === 200) {
+        var blob = r.getBlob();
+        var ct = String(blob.getContentType() || '');
+        if (ct.indexOf('image') === 0) {
+          out[items[i].key] = 'data:' + ct + ';base64,' + Utilities.base64Encode(blob.getBytes());
+        }
+      }
+    } catch (e2) {}
+  }
+  return out;
+}
+
+/** Drive REST でフォルダ内の画像を {拡張子なし名: {id, thumb}} で取得（thumbnailLink付き）。 */
+function driveListFolder_(folderId) {
+  var token = ScriptApp.getOAuthToken();
+  var map = {}, pageToken = '';
+  do {
+    var url = 'https://www.googleapis.com/drive/v3/files?q=' +
+      encodeURIComponent("'" + folderId + "' in parents and trashed=false") +
+      '&fields=' + encodeURIComponent('nextPageToken,files(id,name,thumbnailLink)') +
+      '&pageSize=1000' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    var resp;
+    try { resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true }); }
+    catch (e) { break; }
+    if (resp.getResponseCode() !== 200) break;
+    var data;
+    try { data = JSON.parse(resp.getContentText()); } catch (e2) { break; }
+    (data.files || []).forEach(function (f) {
+      var b = stripExt_(f.name);
+      if (!(b in map)) map[b] = { id: f.id, thumb: f.thumbnailLink || '' };
+    });
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+  return map;
+}
+
+/** thumbnailLink のサイズ指定を差し替える。 */
+function sizeThumb_(url, size) {
+  if (!url) return '';
+  if (/=s\d+/.test(url)) return url.replace(/=s\d+(-[a-z]+)?/i, '=s' + size);
+  if (/=w\d+/.test(url)) return url.replace(/=w\d+(-h\d+)?/i, '=w' + size);
+  return url + '=s' + size;
+}
+
+/** プレフィックスのサブフォルダの {名: {id, thumb}}（CacheService 1時間）。 */
+function prefixThumbIndex_(prefix, force) {
+  var cache = CacheService.getScriptCache();
+  var key = 'bsthumb_' + prefix;
+  if (!force) { var c = cache.get(key); if (c) { try { return JSON.parse(c); } catch (e) {} } }
+  var root = getImageRoot_();
+  var sub = getSubfolder_(root, prefix);
+  var map = sub ? driveListFolder_(sub.getId()) : {};
+  try { cache.put(key, JSON.stringify(map), 3600); } catch (e) {}
+  return map;
+}
+
 /**
- * カードIDの配列に対して {cardId: dataURI} を返す（まとめて取得）。
- * まずプレフィックスのサブフォルダを見て、無ければ安全網（全フォルダを1回だけ索引）で探す。
+ * カードIDの配列 → {cardId: dataURI}。
+ * 非公開フォルダでも速いように、Drive のサムネイルを OAuth トークン付きで「並列」取得する。
+ * 取れなかったものはファイル本体を並列取得（フォールバック）。
  */
-function getCardImages(cardIds) {
+function getCardImages(cardIds, size) {
   var out = {};
   if (!cardIds || !cardIds.length) return out;
-  var root = getImageRoot_();
+  size = parseInt(size, 10) || DEFAULT_IMG_W;
+  cardIds.forEach(function (c) { out[String(c)] = ''; });
 
-  // プレフィックスごとにまとめる。
+  // プレフィックスごとに索引（id + thumbnailLink）。
   var byPrefix = {};
-  cardIds.forEach(function (id) {
-    id = String(id);
-    if (id in out) return;
-    out[id] = ''; // 既定（未発見）
-    var p = imagePrefix_(id);
-    (byPrefix[p] = byPrefix[p] || []).push(id);
+  cardIds.forEach(function (c) { c = String(c); var p = imagePrefix_(c); (byPrefix[p] = byPrefix[p] || []).push(c); });
+  var info = {}; // cardId -> {id, thumb}
+  Object.keys(byPrefix).forEach(function (p) {
+    var idx = prefixThumbIndex_(p, false);
+    var missing = byPrefix[p].some(function (c) { return !idx[c]; });
+    if (missing) idx = prefixThumbIndex_(p, true); // 新カード対応
+    byPrefix[p].forEach(function (c) { if (idx[c]) info[c] = idx[c]; });
   });
 
-  // 安全網：プレフィックスのフォルダに無い場合に備え、全フォルダを1回だけ索引する。
-  var globalIdx = null;
-  function ensureGlobal() {
-    if (globalIdx) return globalIdx;
-    globalIdx = {};
-    var merge = function (idx) { Object.keys(idx).forEach(function (k) { if (!(k in globalIdx)) globalIdx[k] = idx[k]; }); };
-    merge(indexFolderImages_(root));
-    var fs = root.getFolders();
-    while (fs.hasNext()) merge(indexFolderImages_(fs.next()));
-    return globalIdx;
+  // プレフィックス外（置き場所違い）の安全網：従来の全体索引で fileId を解決。
+  var unresolved = [];
+  cardIds.forEach(function (c) { c = String(c); if (!info[c]) unresolved.push(c); });
+  if (unresolved.length) {
+    var ids2 = getCardImageIds(unresolved);
+    Object.keys(ids2).forEach(function (c) { if (ids2[c]) info[c] = { id: ids2[c], thumb: '' }; });
   }
 
-  Object.keys(byPrefix).forEach(function (p) {
-    var sub = getSubfolder_(root, p);
-    var idx = sub ? indexFolderImages_(sub) : null;
-    byPrefix[p].forEach(function (id) {
-      var f = idx ? idx[id] : null;
-      if (!f) f = ensureGlobal()[id] || null;
-      if (f) out[id] = fileToDataUrl_(f);
-    });
-  });
+  // 1) サムネイルを並列取得（小さい・速い・共有不要）。
+  var thumbItems = [];
+  Object.keys(info).forEach(function (c) { if (info[c].thumb) thumbItems.push({ key: c, url: sizeThumb_(info[c].thumb, size) }); });
+  var got = fetchAllToDataUrls_(thumbItems);
+  Object.keys(got).forEach(function (c) { if (got[c]) out[c] = got[c]; });
+
+  // 2) フォールバック：ファイル本体を並列取得。
+  var mediaItems = [];
+  Object.keys(info).forEach(function (c) { if (!out[c] && info[c].id) mediaItems.push({ key: c, url: 'https://www.googleapis.com/drive/v3/files/' + info[c].id + '?alt=media' }); });
+  if (mediaItems.length) { var g2 = fetchAllToDataUrls_(mediaItems); Object.keys(g2).forEach(function (c) { if (g2[c]) out[c] = g2[c]; }); }
   return out;
 }
 
 /** 1枚だけ取得（プレビュー等）。 */
-function getCardImage(cardId) {
-  var m = getCardImages([cardId]);
+function getCardImage(cardId, size) {
+  var m = getCardImages([cardId], size);
   return m[String(cardId)] || '';
 }
 
@@ -526,7 +597,7 @@ function emptyPlayer_() {
     deck: [], hand: [], trash: [], removed: [], burst: [], reveal: [],
     life: { normal: 0, soul: 0 }, reserve: { normal: 0, soul: 0 },
     trashCore: { normal: 0, soul: 0 }, count: { normal: 0, soul: 0 }, field: [],
-    decklist: [], deckSubmitted: false, dealt: false, contractName: ''
+    decklist: [], deckSubmitted: false, dealt: false, contractName: '', ready: false
   };
 }
 
@@ -594,8 +665,36 @@ function submitDeck(seat, token, decklist) {
     player.decklist = decklist || [];
     player.deckSubmitted = true;
     player.dealt = false;
+    player.ready = false; // デッキを出し直したら「ゲームスタート」もやり直し
     pushLog_(state, state.seats[seat].name + ' がデッキ(' + deck.length + '枚)を提出');
   });
+}
+
+/** 「ゲームスタート」準備フラグを立てる/降ろす。 */
+function setReady(seat, token, val) {
+  return seatAction_(seat, token, function (state, player) {
+    player.ready = !!val;
+    pushLog_(state, state.seats[seat].name + (val ? ' がゲームスタート（準備完了）' : ' が準備を解除'));
+  });
+}
+
+/** 両者のデッキに含まれるカードID（＋実在する転醒先 _b）を返す。界放での先読み用。 */
+function getMatchManifest(seat, token) {
+  var state = loadState_();
+  if (!state || !seatAuthorized_(state, seat, token)) throw new Error('認証エラー。');
+  var set = {};
+  ['A', 'B'].forEach(function (s) {
+    var p = state.players[s];
+    (p.decklist || []).forEach(function (e) { if (e && e.cardId) set[String(e.cardId)] = true; });
+    (p.deck || []).forEach(function (c) { if (c && c.cardId) set[String(c.cardId)] = true; });
+  });
+  var baseIds = Object.keys(set);
+  // 転醒先（_b）のうち実在するものだけ追加。
+  var bIds = baseIds.map(function (id) { return id + '_b'; });
+  var bExist = getCardImageIds(bIds);
+  var ids = baseIds.slice();
+  bIds.forEach(function (b) { if (bExist[b]) ids.push(b); });
+  return { ids: ids, baseCount: baseIds.length };
 }
 
 function dealStart(seat, token) {
@@ -1043,7 +1142,7 @@ function getState(seat, token) {
       removed: p.removed.map(function (c) { return decorateCard_(c, cardMap); }),
       reveal: p.reveal.map(function (c) { return decorateCard_(c, cardMap); }),
       handCount: p.hand.length, deckCount: p.deck.length, burstCount: p.burst.length,
-      started: !!p.dealt,
+      started: !!p.dealt, ready: !!p.ready, deckSubmitted: !!p.deckSubmitted,
       lifeZero: !!p.dealt && (p.life.normal + (p.life.soul ? 1 : 0) === 0),
       deckZero: !!p.dealt && p.deck.length === 0
     };
