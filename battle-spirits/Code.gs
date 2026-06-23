@@ -396,9 +396,61 @@ function prefixThumbIndex_(prefix, force) {
   return map;
 }
 
+/** 画像が見つからなかったカードID（負のキャッシュ）。再探索の無駄を防ぐ。 */
+function getNegativeSet_(cardIds) {
+  var cache = CacheService.getScriptCache();
+  var keys = cardIds.map(function (c) { return 'bsmiss_' + c; });
+  var got = {};
+  try { got = cache.getAll(keys) || {}; } catch (e) {}
+  var set = {};
+  cardIds.forEach(function (c) { if (got['bsmiss_' + c]) set[c] = true; });
+  return set;
+}
+function addNegative_(cardIds) {
+  if (!cardIds.length) return;
+  var cache = CacheService.getScriptCache();
+  var obj = {};
+  cardIds.forEach(function (c) { obj['bsmiss_' + c] = '1'; });
+  try { cache.putAll(obj, 600); } catch (e) {} // 10分。新規追加カードは10分後に再探索される。
+}
+
+/**
+ * カードID配列 → {cardId: {id, thumb} | null}。
+ * プレフィックス索引（キャッシュ）で解決。見つからないものは1度だけ索引を作り直し、
+ * それでも無ければ「画像なし」として負のキャッシュに入れる（＝以後は探さない）。
+ * これにより、画像未登録のカードが混じっていても遅くならない。
+ */
+function resolveCards_(cardIds) {
+  var out = {};
+  var uniq = [];
+  cardIds.forEach(function (c) { c = String(c); if (c in out) return; out[c] = null; uniq.push(c); });
+  if (!uniq.length) return out;
+  var neg = getNegativeSet_(uniq);
+
+  var byPrefix = {};
+  uniq.forEach(function (c) { var p = imagePrefix_(c); (byPrefix[p] = byPrefix[p] || []).push(c); });
+
+  Object.keys(byPrefix).forEach(function (p) {
+    var idx = prefixThumbIndex_(p, false);
+    var unknown = [];
+    byPrefix[p].forEach(function (c) {
+      if (idx[c]) out[c] = idx[c];
+      else if (!neg[c]) unknown.push(c); // 未知（新規かもしれない）→ あとで1回だけ確認
+      // それ以外（負のキャッシュ済み）は「画像なし」のまま
+    });
+    if (unknown.length) {
+      var idx2 = prefixThumbIndex_(p, true); // このプレフィックスを1回だけ作り直す
+      var miss = [];
+      unknown.forEach(function (c) { if (idx2[c]) out[c] = idx2[c]; else miss.push(c); });
+      addNegative_(miss); // 本当に無いものは記録（次回から探さない）
+    }
+  });
+  return out;
+}
+
 /**
  * カードIDの配列 → {cardId: dataURI}。
- * 非公開フォルダでも速いように、Drive のサムネイルを OAuth トークン付きで「並列」取得する。
+ * Drive のサムネイルを OAuth トークン付きで「並列」取得する（非公開フォルダでも速い）。
  * 取れなかったものはファイル本体を並列取得（フォールバック）。
  */
 function getCardImages(cardIds, size) {
@@ -406,35 +458,17 @@ function getCardImages(cardIds, size) {
   if (!cardIds || !cardIds.length) return out;
   size = parseInt(size, 10) || DEFAULT_IMG_W;
   cardIds.forEach(function (c) { out[String(c)] = ''; });
+  var info = resolveCards_(cardIds);
 
-  // プレフィックスごとに索引（id + thumbnailLink）。
-  var byPrefix = {};
-  cardIds.forEach(function (c) { c = String(c); var p = imagePrefix_(c); (byPrefix[p] = byPrefix[p] || []).push(c); });
-  var info = {}; // cardId -> {id, thumb}
-  Object.keys(byPrefix).forEach(function (p) {
-    var idx = prefixThumbIndex_(p, false);
-    var missing = byPrefix[p].some(function (c) { return !idx[c]; });
-    if (missing) idx = prefixThumbIndex_(p, true); // 新カード対応
-    byPrefix[p].forEach(function (c) { if (idx[c]) info[c] = idx[c]; });
-  });
-
-  // プレフィックス外（置き場所違い）の安全網：従来の全体索引で fileId を解決。
-  var unresolved = [];
-  cardIds.forEach(function (c) { c = String(c); if (!info[c]) unresolved.push(c); });
-  if (unresolved.length) {
-    var ids2 = getCardImageIds(unresolved);
-    Object.keys(ids2).forEach(function (c) { if (ids2[c]) info[c] = { id: ids2[c], thumb: '' }; });
-  }
-
-  // 1) サムネイルを並列取得（小さい・速い・共有不要）。
+  // 1) サムネイルを並列取得。
   var thumbItems = [];
-  Object.keys(info).forEach(function (c) { if (info[c].thumb) thumbItems.push({ key: c, url: sizeThumb_(info[c].thumb, size) }); });
+  Object.keys(info).forEach(function (c) { if (info[c] && info[c].thumb) thumbItems.push({ key: c, url: sizeThumb_(info[c].thumb, size) }); });
   var got = fetchAllToDataUrls_(thumbItems);
   Object.keys(got).forEach(function (c) { if (got[c]) out[c] = got[c]; });
 
   // 2) フォールバック：ファイル本体を並列取得。
   var mediaItems = [];
-  Object.keys(info).forEach(function (c) { if (!out[c] && info[c].id) mediaItems.push({ key: c, url: 'https://www.googleapis.com/drive/v3/files/' + info[c].id + '?alt=media' }); });
+  Object.keys(info).forEach(function (c) { if (info[c] && info[c].id && !out[c]) mediaItems.push({ key: c, url: 'https://www.googleapis.com/drive/v3/files/' + info[c].id + '?alt=media' }); });
   if (mediaItems.length) { var g2 = fetchAllToDataUrls_(mediaItems); Object.keys(g2).forEach(function (c) { if (g2[c]) out[c] = g2[c]; }); }
   return out;
 }
@@ -489,62 +523,13 @@ function publishImageFolder() {
   return { ok: true, mode: getImageConfig().mode };
 }
 
-/** プレフィックスのサブフォルダの {ファイル名(拡張子なし): fileId} を返す（CacheServiceでキャッシュ）。 */
-function cardIndexForPrefix_(prefix, force) {
-  var cache = CacheService.getScriptCache();
-  var key = 'bsidx_' + prefix;
-  if (!force) {
-    var cached = cache.get(key);
-    if (cached) { try { return JSON.parse(cached); } catch (e) {} }
-  }
-  var root = getImageRoot_();
-  var sub = getSubfolder_(root, prefix);
-  var map = {};
-  if (sub) {
-    var it = sub.getFiles();
-    while (it.hasNext()) { var f = it.next(); var b = stripExt_(f.getName()); if (!(b in map)) map[b] = f.getId(); }
-  }
-  try { cache.put(key, JSON.stringify(map), IMG_ID_TTL_); } catch (e) {}
-  return map;
-}
-
-/** 安全網：ルート直下＋直下サブフォルダの {ファイル名: fileId}（プレフィックス外の置き場所用）。 */
-function globalIndexIds_() {
-  var root = getImageRoot_();
-  var map = {};
-  var add = function (folder) {
-    var it = folder.getFiles();
-    while (it.hasNext()) { var f = it.next(); var b = stripExt_(f.getName()); if (!(b in map)) map[b] = f.getId(); }
-  };
-  add(root);
-  var fs = root.getFolders();
-  while (fs.hasNext()) add(fs.next());
-  return map;
-}
-
-/** カードID配列 → {cardId: fileId}。バイト読み込みをしないので高速（CDNモード用）。 */
+/** カードID配列 → {cardId: fileId}。CDNモード用／転醒先(_b)の存在確認にも使う。 */
 function getCardImageIds(cardIds) {
   var out = {};
   if (!cardIds || !cardIds.length) return out;
-  var byPrefix = {};
-  cardIds.forEach(function (id) {
-    id = String(id);
-    if (id in out) return;
-    out[id] = '';
-    var p = imagePrefix_(id);
-    (byPrefix[p] = byPrefix[p] || []).push(id);
-  });
-  var globalIdx = null;
-  Object.keys(byPrefix).forEach(function (p) {
-    var idx = cardIndexForPrefix_(p, false);
-    var missing = byPrefix[p].some(function (id) { return !idx[id]; });
-    if (missing) idx = cardIndexForPrefix_(p, true); // 取りこぼし→作り直し（新カード対応）
-    byPrefix[p].forEach(function (id) {
-      var fid = idx[id];
-      if (!fid) { if (!globalIdx) globalIdx = globalIndexIds_(); fid = globalIdx[id] || ''; }
-      if (fid) out[id] = fid;
-    });
-  });
+  cardIds.forEach(function (c) { out[String(c)] = ''; });
+  var info = resolveCards_(cardIds);
+  Object.keys(info).forEach(function (c) { if (info[c]) out[c] = info[c].id; });
   return out;
 }
 

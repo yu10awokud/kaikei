@@ -292,7 +292,7 @@
 
   <div id="kaihou" class="kaihou hidden">
     <div class="kaihou-inner">
-      <div class="kaihou-title">ゲートオープン！ 界放！</div>
+      <div id="kaihouTitle" class="kaihou-title">ゲームを起動中…</div>
       <div class="kaihou-bar"><div id="kaihouFill" class="kaihou-fill"></div></div>
       <div id="kaihouPct" class="kaihou-pct">0%</div>
       <div id="kaihouSub" class="kaihou-sub">対戦カードを読み込んでいます…</div>
@@ -516,7 +516,9 @@
     if(sub!=null)$('#kaihouSub').textContent=sub;
   }
   function hideKaihou(){$('#kaihou').classList.add('hidden');}
+  function setLoadTitle(t){var e=$('#kaihouTitle');if(e)e.textContent=t;}
   function runKaihou(){
+    setLoadTitle('ゲートオープン！ 界放！');
     showKaihou(0,'対戦カードを読み込んでいます…');
     gsRun('getMatchManifest',mySeat(),myToken()).then(function(r){
       var ids=(r&&r.ids)||[];
@@ -1178,21 +1180,33 @@
   };
 
   // =========================================================================
-  // 起動：まず画像モード（共有なら高速CDN）を判定してから読み込み開始。
+  // 起動：ローディング画面（ゲージ）を出し、コレクションのサムネを全部読み込んでから開始。
   // =========================================================================
+  setLoadTitle('ゲームを起動中…');
+  showKaihou(0,'コレクションを読み込んでいます…');
+  var BOOT_T=Date.now();
   gsRun('getImageConfig').then(function(c){
     var m=(c&&c.mode)||'base64';
     if(m!==IMG_MODE){IMG_MODE=m;IMG_CACHE={};IMG_PENDING={};IMG_ELS={};lastBoardSig=null;}
     renderImgMode();
   }).catch(function(){}).then(function(){
-    // コレクションのサムネを最優先で先読み（盤面画像より先にキューへ）。
-    gsRun('getCollections').then(function(list){prefetchCollectionThumbs(list);}).catch(function(){});
     loadBackImage();
+    return gsRun('getCollections');
+  }).then(function(list){
+    // 保存済みデッキのサムネ（先頭カード）をすべて読み込む。
+    var ids=[],seen={};
+    (list||[]).forEach(function(c){var e=parseDeckText(c.deckText);if(e.length&&e[0].cardId){var id=e[0].cardId;if(!seen[id]){seen[id]=1;ids.push(id);}}});
+    var need=ids.filter(function(id){return IMG_CACHE[String(id)]===undefined;});
+    return new Promise(function(res){loadWithProgress(need,res);});
+  }).then(function(){
     return gsRun('gameExists');
   }).then(function(r){
     if(!r||!r.exists)return gsRun('createGame','');
-  }).then(function(){loadCards();refresh();startPolling();})
-    .catch(function(e){console.warn(e);loadCards();refresh();startPolling();});
+  }).then(function(){
+    loadCards();
+    var wait=Math.max(0,700-(Date.now()-BOOT_T)); // ローディングは最低0.7秒は見せる
+    setTimeout(function(){hideKaihou();refresh();startPolling();},wait);
+  }).catch(function(e){console.warn(e);hideKaihou();loadCards();refresh();startPolling();});
   </script>
 </body>
 </html>
