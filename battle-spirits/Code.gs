@@ -262,6 +262,31 @@ function deleteCard(cardId) {
   return { ok: false };
 }
 
+/**
+ * カード検索（「デッキ」ページのカード検索タブ用）。
+ * カード名 または カードID を部分一致（大文字小文字を無視）で探す。
+ * 返すのは {id, name} のみ（画像は含めない＝詳細ボタンを押したときに別途取得）。
+ * 該当が 200 件を超える場合は tooMany:true を返し、結果リストは返さない（表示拒否）。
+ */
+function searchCards(query) {
+  query = String(query == null ? '' : query).trim();
+  if (!query) return { total: 0, items: [] };
+  var q = query.toLowerCase();
+  var all = getAllCards();
+  var items = [];
+  var count = 0;
+  for (var i = 0; i < all.length; i++) {
+    var id = String(all[i].id || '');
+    var name = String(all[i].name || '');
+    if (id.toLowerCase().indexOf(q) >= 0 || (name && name.toLowerCase().indexOf(q) >= 0)) {
+      count++;
+      if (count <= 201) items.push({ id: id, name: name });
+    }
+  }
+  if (count > 200) return { total: count, tooMany: true, items: [] };
+  return { total: count, items: items };
+}
+
 // ===========================================================================
 // 契約カード（Contracts シートにカードIDを列挙）
 // ===========================================================================
@@ -667,11 +692,12 @@ function setReady(seat, token, val) {
 function getMatchManifest(seat, token) {
   var state = loadState_();
   if (!state || !seatAuthorized_(state, seat, token)) throw new Error('認証エラー。');
-  var set = {};
+  var set = {}, mineSet = {};
   ['A', 'B'].forEach(function (s) {
     var p = state.players[s];
-    (p.decklist || []).forEach(function (e) { if (e && e.cardId) set[String(e.cardId)] = true; });
-    (p.deck || []).forEach(function (c) { if (c && c.cardId) set[String(c.cardId)] = true; });
+    var isMine = (s === seat);
+    (p.decklist || []).forEach(function (e) { if (e && e.cardId) { set[String(e.cardId)] = true; if (isMine) mineSet[String(e.cardId)] = true; } });
+    (p.deck || []).forEach(function (c) { if (c && c.cardId) { set[String(c.cardId)] = true; if (isMine) mineSet[String(c.cardId)] = true; } });
   });
   var baseIds = Object.keys(set);
   // 転醒先（_b）のうち実在するものだけ追加。
@@ -679,7 +705,8 @@ function getMatchManifest(seat, token) {
   var bExist = getCardImageIds(bIds);
   var ids = baseIds.slice();
   bIds.forEach(function (b) { if (bExist[b]) ids.push(b); });
-  return { ids: ids, baseCount: baseIds.length };
+  // mine = 自分のデッキに入っているカード種類だけ（相手だけのカードは含めない）。界放の「流れる演出」用。
+  return { ids: ids, baseCount: baseIds.length, mine: Object.keys(mineSet) };
 }
 
 function dealStart(seat, token) {

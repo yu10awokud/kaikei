@@ -188,6 +188,37 @@
   .kaihou-fill{height:100%;width:0;background:linear-gradient(90deg,#3da9fc,#3ad29f);transition:width .25s ease}
   .kaihou-pct{margin-top:10px;font-weight:800;font-size:18px;color:var(--ink)}
   .kaihou-sub{margin-top:6px;color:var(--muted);font-size:12px}
+
+  /* 界放：カードが左→右へ流れる演出 */
+  .kaihou-flow{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+  .kaihou-inner{position:relative;z-index:2;padding:16px 28px;border-radius:18px;
+    background:radial-gradient(ellipse at center,rgba(8,10,14,.82),rgba(8,10,14,0) 72%)}
+  .kaihou-title{filter:drop-shadow(0 2px 8px rgba(0,0,0,.85))}
+  .kaihou-card{position:absolute;left:0;top:0;width:clamp(60px,8.5vw,96px);aspect-ratio:675/983;
+    object-fit:cover;border-radius:7px;background:#0c0f13;
+    box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08);will-change:transform,opacity}
+
+  /* デッキページ：サブタブ（保存済みデッキ / カード検索） */
+  .subtabs{display:flex;gap:4px;margin-bottom:8px}
+  .subtab{flex:1;background:transparent;border:1px solid var(--line);color:var(--muted);padding:6px;border-radius:6px}
+  .subtab.active{background:var(--panel2);color:var(--ink);border-color:var(--accent)}
+  .search-list{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+  .search-row{display:flex;align-items:center;gap:8px;background:#11151a;border:1px solid var(--line);
+    border-radius:6px;padding:5px 8px}
+  .search-info{flex:1;min-width:0;cursor:pointer;display:flex;flex-direction:column;gap:1px}
+  .search-info:hover .search-name{color:var(--accent)}
+  .search-id{font-size:11px;color:var(--muted);font-family:monospace}
+  .search-name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pager{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+  .bad-text{color:var(--bad)}
+  .pack-guide{max-height:60vh;overflow:auto;background:#11151a;border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;margin-top:6px}
+  .pack-guide h4{margin:2px 0 8px;color:var(--accent);font-size:13px}
+  .pg-item{padding:3px 4px;border-bottom:1px dashed var(--line);font-size:12px;cursor:pointer;
+    display:flex;gap:8px;align-items:baseline}
+  .pg-item:hover{background:var(--panel2)}
+  .pg-code{color:var(--good);font-weight:700;font-family:monospace;flex:none;min-width:54px}
+  .pg-sub{color:var(--muted);font-size:11px;padding:2px 6px 6px 62px}
   </style>
 </head>
 <body>
@@ -242,8 +273,23 @@
         <div id="deckStatus" class="status"></div>
       </div>
       <div class="deck-right">
-        <h3>保存済みデッキ</h3>
-        <div id="collList" class="coll-list"></div>
+        <div class="subtabs">
+          <button id="subtabColl" class="subtab active">保存済みデッキ</button>
+          <button id="subtabSearch" class="subtab">カード検索</button>
+        </div>
+        <div id="paneColl">
+          <div id="collList" class="coll-list"></div>
+        </div>
+        <div id="paneSearch" class="hidden">
+          <div class="row">
+            <input id="searchInput" placeholder="カード名 または カードID（例: BS65-001 ／ ドラゴン）" style="flex:1;min-width:160px">
+            <button id="btnSearchCards" class="primary mini">検索</button>
+          </div>
+          <p class="hint" style="margin:4px 0 0">検索欄に <code>BS</code> <code>SD</code> <code>BSC</code> <code>CB</code> と入力すると、弾／スターターの早見表が出ます。</p>
+          <div id="packGuide" class="pack-guide hidden"></div>
+          <div id="searchResult"></div>
+          <div id="searchPager" class="pager"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -291,7 +337,8 @@
   </section>
 
   <div id="kaihou" class="kaihou hidden">
-    <div class="kaihou-inner">
+    <div id="kaihouFlow" class="kaihou-flow"></div>
+    <div id="kaihouInner" class="kaihou-inner">
       <div id="kaihouTitle" class="kaihou-title">ゲームを起動中…</div>
       <div class="kaihou-bar"><div id="kaihouFill" class="kaihou-fill"></div></div>
       <div id="kaihouPct" class="kaihou-pct">0%</div>
@@ -522,15 +569,73 @@
     showKaihou(0,'対戦カードを読み込んでいます…');
     gsRun('getMatchManifest',mySeat(),myToken()).then(function(r){
       var ids=(r&&r.ids)||[];
+      var mine=(r&&r.mine)||[];
       pruneCache(ids); // この対戦で使うカードだけ残す
+      startFlow(mine); // 自分の使用カードを左→右へ流す（読み込み済みのみ・1種につき1枚）
       var need=ids.filter(function(id){return id&&IMG_CACHE[String(id)]===undefined;});
       loadWithProgress(need,function(){
         showKaihou(100,'界放完了。配布します…');
         gsRun('dealStart',mySeat(),myToken()).then(function(){
-          setTimeout(function(){hideKaihou();kaihouRunning=false;switchTab('play');refresh();},350);
-        }).catch(function(e){hideKaihou();kaihouRunning=false;fail(e);});
+          setTimeout(function(){stopFlow();hideKaihou();kaihouRunning=false;switchTab('play');refresh();},800);
+        }).catch(function(e){stopFlow();hideKaihou();kaihouRunning=false;fail(e);});
       });
-    }).catch(function(e){hideKaihou();kaihouRunning=false;fail(e);});
+    }).catch(function(e){stopFlow();hideKaihou();kaihouRunning=false;fail(e);});
+  }
+
+  // --- 界放：自分の使用カードを左→右へ流す演出 ---
+  //  ・読み込み済みのカードだけを投入（IMG_CACHE が確定し、画像ありのもの）。
+  //  ・軌道は左端→右端。中央付近はやや減速（p(t)=t+K*sin(2πt)/2π）。
+  //  ・縦は文字／バーより下の帯で、中央付近をやや持ち上げる放物線（上側に見切れない）。
+  var FLOW={on:false,raf:null,ids:[],idx:0,items:[],lastSpawn:0};
+  function makeLoadedImg(id){
+    var img=el('img','kaihou-card');
+    img.setAttribute('data-cid',id);img.setAttribute('data-sz',300);
+    applyImg(img,IMG_CACHE[id],300);
+    return img;
+  }
+  function startFlow(ids){
+    stopFlow();
+    var arr=(ids||[]).slice();
+    for(var i=arr.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}
+    FLOW.ids=arr;FLOW.idx=0;FLOW.items=[];FLOW.lastSpawn=0;FLOW.on=true;
+    FLOW.raf=requestAnimationFrame(flowTick);
+  }
+  function stopFlow(){
+    FLOW.on=false;if(FLOW.raf)cancelAnimationFrame(FLOW.raf);FLOW.raf=null;
+    var lane=$('#kaihouFlow');if(lane)lane.innerHTML='';FLOW.items=[];
+  }
+  function flowTick(ts){
+    if(!FLOW.on)return;
+    var lane=$('#kaihouFlow');
+    if(!lane){FLOW.raf=requestAnimationFrame(flowTick);return;}
+    var W=window.innerWidth,H=window.innerHeight;
+    var inner=$('#kaihouInner'),ir=inner?inner.getBoundingClientRect():{bottom:H*0.6};
+    var bandTop=ir.bottom+18, bandBottom=H-12;
+    var DURATION=4400, SPAWN=620, K=0.82;
+    // 読み込み済みのカードを一定間隔で投入（未読み込みのIDは飛ばす）。
+    if(FLOW.ids.length && ts-FLOW.lastSpawn>=SPAWN){
+      FLOW.lastSpawn=ts;
+      var id=null,tries=0;
+      while(tries<FLOW.ids.length){var cand=FLOW.ids[FLOW.idx%FLOW.ids.length];FLOW.idx++;tries++;if(IMG_CACHE[cand]){id=cand;break;}}
+      if(id){lane.appendChild(makeLoadedImg(id));FLOW.items.push({el:lane.lastChild,start:ts,row:Math.random(),tilt:(Math.random()*9-4.5)});}
+    }
+    for(var i=FLOW.items.length-1;i>=0;i--){
+      var it=FLOW.items[i];
+      var t=(ts-it.start)/DURATION;
+      if(t>=1){if(it.el.parentNode)it.el.parentNode.removeChild(it.el);FLOW.items.splice(i,1);continue;}
+      var p=t+K*Math.sin(2*Math.PI*t)/(2*Math.PI); // 中央付近でやや減速
+      var cw=it.el.offsetWidth||80, ch=it.el.offsetHeight||116;
+      var x=-cw-24 + (W+cw+48)*p;
+      // 上端位置の可動域 [lo, hi]（文字より下〜画面下端）。t=0,1で下寄り、中央で持ち上げ。
+      var lo=bandTop, hi=Math.max(bandTop,bandBottom-ch);
+      var baseTop=hi-it.row*(hi-lo)*0.45;
+      var amp=Math.min(baseTop-lo,(hi-lo)*0.55);
+      var top=baseTop-amp*Math.sin(Math.PI*t);
+      if(top<bandTop)top=bandTop; // 上側クリップ防止
+      it.el.style.opacity=(t<0.12?(t/0.12):(t>0.88?((1-t)/0.12):1));
+      it.el.style.transform='translate('+x.toFixed(1)+'px,'+top.toFixed(1)+'px) rotate('+it.tilt.toFixed(1)+'deg)';
+    }
+    FLOW.raf=requestAnimationFrame(flowTick);
   }
   function loadWithProgress(ids,done){
     var total=ids.length,loaded=0;
@@ -1150,6 +1255,201 @@
     var cl=el('button','mini','閉じる');cl.onclick=hideModal;
     foot.appendChild(bCopy);foot.appendChild(cl);box.appendChild(foot);
     showModal(box);
+  }
+
+  // =========================================================================
+  // デッキページ：サブタブ（保存済みデッキ ⇄ カード検索）
+  // =========================================================================
+  function showDeckSub(which){
+    var coll=(which!=='search');
+    $('#subtabColl').classList.toggle('active',coll);
+    $('#subtabSearch').classList.toggle('active',!coll);
+    $('#paneColl').classList.toggle('hidden',!coll);
+    $('#paneSearch').classList.toggle('hidden',coll);
+    if(coll)loadCollections(); else updatePackGuide();
+  }
+  $('#subtabColl').onclick=function(){showDeckSub('coll');};
+  $('#subtabSearch').onclick=function(){showDeckSub('search');};
+
+  // 検索結果のカードをデッキ欄へ追加（既にあれば枚数+1。連打で増える）。
+  function addCardToDeck(cardId){
+    var ta=$('#deckText'),lines=ta.value.split('\n'),found=false;
+    for(var i=0;i<lines.length;i++){
+      var m=lines[i].split(',');
+      if(m[0]&&m[0].trim()===cardId){lines[i]=cardId+','+((parseInt(m[1],10)||1)+1);found=true;break;}
+    }
+    if(!found){while(lines.length&&!lines[lines.length-1].trim())lines.pop();lines.push(cardId+',1');}
+    ta.value=lines.join('\n');toast(cardId+' をデッキに追加');
+  }
+
+  // --- カード検索（名前 or ID・部分一致。20件/ページ・200件超は表示拒否） ---
+  var SEARCH={items:[],page:0,per:20};
+  function runCardSearch(){
+    var q=$('#searchInput').value.trim();
+    if(!q){toast('カード名かカードIDを入力してください',true);return;}
+    $('#packGuide').classList.add('hidden');
+    $('#searchResult').innerHTML='<div class="hint">検索中…</div>';$('#searchPager').innerHTML='';
+    gsRun('searchCards',q).then(function(res){
+      if(res&&res.tooMany){
+        $('#searchResult').innerHTML='<div class="hint bad-text">該当 '+res.total+' 件（200件を超えています）。表示できません。検索語をもっと絞ってください。</div>';
+        $('#searchPager').innerHTML='';return;
+      }
+      SEARCH.items=(res&&res.items)||[];SEARCH.page=0;
+      if(!SEARCH.items.length){$('#searchResult').innerHTML='<div class="hint">該当するカードがありません。</div>';return;}
+      renderSearchPage();
+    }).catch(fail);
+  }
+  function renderSearchPage(){
+    var per=SEARCH.per,start=SEARCH.page*per,items=SEARCH.items.slice(start,start+per);
+    var box=$('#searchResult');box.innerHTML='';
+    box.appendChild(el('div','hint','全 '+SEARCH.items.length+' 件中 '+(start+1)+'〜'+(start+items.length)+' 件目（行をクリックでデッキに追加・連打で枚数+1／「詳細」で画像表示）'));
+    var list=el('div','search-list');
+    items.forEach(function(c){
+      var row=el('div','search-row');
+      var info=el('div','search-info');
+      info.appendChild(el('span','search-id',esc(c.id)));
+      info.appendChild(el('span','search-name',esc(c.name||'（名称未登録）')));
+      info.onclick=function(){addCardToDeck(c.id);};
+      var det=el('button','mini','詳細');
+      det.onclick=function(e){e.stopPropagation();showCardPreview({cardId:c.id});};
+      row.appendChild(info);row.appendChild(det);list.appendChild(row);
+    });
+    box.appendChild(list);
+    renderSearchPager();
+  }
+  function renderSearchPager(){
+    var per=SEARCH.per,pages=Math.ceil(SEARCH.items.length/per),pg=$('#searchPager');pg.innerHTML='';
+    if(pages<=1)return;
+    for(var i=0;i<pages;i++){(function(i){
+      var b=el('button','mini'+(i===SEARCH.page?' primary':''),String(i+1));
+      b.title=(i*per+1)+'〜'+Math.min((i+1)*per,SEARCH.items.length)+'件目を表示';
+      b.onclick=function(){SEARCH.page=i;renderSearchPage();var ps=$('#paneSearch');if(ps)ps.scrollIntoView({block:'nearest'});};
+      pg.appendChild(b);
+    })(i);}
+  }
+  $('#btnSearchCards').onclick=runCardSearch;
+  $('#searchInput').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();runCardSearch();}});
+  $('#searchInput').addEventListener('input',updatePackGuide);
+
+  // --- 弾／スターター早見表（検索欄に BS / SD / BSC / CB と入力すると表示） ---
+  function pgList(arr){return arr.map(function(s){if(s.charAt(0)==='#')return {sub:s.slice(1)};var i=s.indexOf('|');return {code:s.slice(0,i),name:s.slice(i+1)};});}
+  var PACK_GUIDE={
+    BS:pgList([
+      'BS75|契約編：環 第4章：英雄傑集','BS74|契約編：環 第3章：覇極来臨','BS73|契約編：環 第2章：天地転世',
+      'BS72|契約編：環 第1章：廻帰再臨','BS71|契約編：真 第4章：神王の帰還','BS70|契約編：真 第3章：全天の覇神',
+      'BS69|契約編：真 第2章：原初の襲来','BS68|契約編：真 第1章：神々の戦い','BS67|契約編：界 第4章：界導',
+      'BS66|契約編：界 第3章：紆約','BS65|契約編：界 第2章：極争','BS64|契約編：界 第1章：閃刃',
+      '#契約編：界 第1章：閃刃 スタートボックス',
+      'BS63|契約編 第4章：ビヨンドエボリューション','BS62|契約編 第3章：ライズオブプライバルズ',
+      'BS61|契約編 第2章：リベレーションオブゴッド','BS60|契約編 第1章：ファーストパートナー',
+      'BS59|真・転醒編 第4章：運命の変革','BS58|真・転醒編 第3章：始原の鼓動','BS57|真・転醒編 第2章：究極の神醒',
+      'BS56|真・転醒編 第1章：世界の真実','BS55|転醒編 第4章：天地万象','BS54|転醒編 第3章：紫電一閃',
+      'BS53|転醒編 第2章：神出鬼没','BS52|転醒編 第1章：輪廻転生','BS51|超煌臨編 第4章：神攻勢力',
+      'BS50|超煌臨編 第3章：全知全能','BS49|超煌臨編 第2章：双刃乃神','BS48|超煌臨編 第1章：神話覚醒',
+      'BS47|神煌臨編 第4章：神の帰還','BS46|神煌臨編 第3章：神々の運命','BS45|神煌臨編 第2章：蘇る究極神',
+      'BS44|神煌臨編 第1章：創界神の鼓動','BS43|煌臨編 第4章：選バレシ者','BS42|煌臨編 第3章：革命ノ神器',
+      'BS41|煌臨編 第2章：蒼キ海賊','BS40|煌臨編 第1章：伝説ノ英雄','BS39|十二神皇編 第5章','BS38|十二神皇編 第4章',
+      'BS37|十二神皇編 第3章','BS36|十二神皇編 第2章','BS35|十二神皇編 第1章','BS34|烈火伝 第4章','BS33|烈火伝 第3章',
+      'BS32|烈火伝 第2章','BS31|烈火伝 第1章','BS30|アルティメットバトル07','BS29|アルティメットバトル06',
+      'BS28|アルティメットバトル05','BS27|アルティメットバトル04','BS26|アルティメットバトル03','BS25|アルティメットバトル02',
+      'BS24|アルティメットバトル01','BS23|剣刃編 第5弾：剣双神話','BS22|剣刃編 第4弾：暗黒刃翼','BS21|剣刃編 第3弾：光輝剣武',
+      'BS20|剣刃編 第2弾：乱剣戦記','BS19|剣刃編 第1弾：聖剣時代','BS18|覇王編 第5弾：覇王大決戦','BS17|覇王編 第4弾：剣舞う世界',
+      'BS16|覇王編 第3弾：煌めく覇道','BS15|覇王編 第2弾：黄金の大地','BS14|覇王編 第1弾：英雄龍の伝説',
+      'BS13|星座編 第四弾：星空の王者','BS12|星座編 第三弾：月の咆哮','BS11|星座編 第二弾：灼熱の太陽','BS10|星座編 第一弾：八星龍降臨',
+      'BS09|第九弾：超星','BS08|第八弾：戦嵐','BS07|第七弾：天醒','BS06|第六弾：爆神','BS05|第五弾：皇騎',
+      'BS04|第四弾：龍帝','BS03|第三弾：覇闘','BS02|第二弾：激翔','BS01|第一弾'
+    ]),
+    SD:pgList([
+      'SD70|コラボスターター【ペルソナ3 リロード】','SD69|メガデッキ【豪炎の創世主】','SD68|メガデッキ【太陽神の顕現】',
+      'SD67|バトスピドリームデッキ【究極の新星】','SD66|バトスピドリームデッキ【紅蓮の異世界】','SD65|メガデッキ【ニュージェネレーション】',
+      'SD64|バトスピダッシュデッキ【無限の絆】','SD63|メガデッキ【光主の共鳴】','SD62|コラボスターター【エヴァンゲリオン 〜目醒めの刻〜】',
+      'SD61|バトスピエントリーデッキ【白銀の記憶】','SD60|バトスピエントリーデッキ【紫翼の未来】',
+      '#バトスピエントリーデッキ コンプリートセット2021',
+      'SD59|バトスピダッシュデッキ【革命の竜騎士】','SD58|メガデッキ【学園演奏会】','SD57|メガデッキ【魔王災誕】',
+      'SD56|メガデッキ【覇王煌斬】','SD55|バトスピダッシュデッキ【創醒の書】','SD54|コラボスターター【ガンダム 〜OPERATION UC〜】',
+      'SD53|コラボスターター【ガンダム 〜OPERATION 00〜】','SD52|コラボスターター【ガンダム 〜OPERATION SEED〜】',
+      '#光導デッキ コンプリートボックス',
+      'SD51|メガデッキ【ダブルノヴァデッキX】','SD50|コラボスターター【アイカツ！始まりの学園】','SD49|アイツのデッキ',
+      'SD48|バトスピダッシュデッキ【開眼の剣】','SD47|メガデッキ【翡翠の神皇】','SD46|メガデッキ【灼熱の神皇】',
+      'SD45|コラボスターター【デジモン 〜選ばれし子どもたち〜】','SD44|バトスピドリームデッキ【光と闇の邂逅】',
+      'SD43|バトスピドリームデッキ【太陽と月の絆】','SD42|コラボスターター【仮面ライダー 〜リ・イマジネーション〜】',
+      'SD41|メガデッキ【双黒ノ龍皇】','SD40|メガデッキ【暁ノ忍法帳】','SD39|バトスピダッシュデッキ【鉄壁ナル龍ト神】',
+      'SD38|バトスピスタートデッキ【煌臨スル龍皇】','SD37|バトスピスタートデッキ【煌臨スル神皇】','SD36|メガデッキ【獄炎のプラム・ザンド】',
+      'SD35|バトスピダッシュデッキ【神速封印】','SD34|バトスピスタートデッキ【異魔神襲来】','SD33|バトスピスタートデッキ【十二神皇降臨】',
+      'SD32|メガデッキ【魔王襲来】','SD31|ソウルデッキ【烈風忍者】','SD30|バトスピビギニングセット【烈火出陣】',
+      'SD29|ソウルデッキ【戦国紅蓮】','SD28|アルティメットデッキ【深淵の大地】','SD27|スペシャルデッキセット【12宮Xレアの輝き】',
+      'SD26|アルティメットデッキ【新たなる太陽】','SD25|メガデッキ【究極フルスロットル】','SD24|アクセル全開デッキ【紺碧のゼロ】',
+      'SD23|アルティメットデッキ【明の明星のエリス】','SD22|アルティメットデッキ【疾風のゼロ】','SD21|はじめてのバトルセット【決めろ!アルティメットトリガー】',
+      'SD20|アルティメットデッキ【白銀のゼロ】','SD19|アルティメットデッキ【灼熱のゼロ】','SD18|バトスピやろうぜ!【はじめてのソードアイズセット】',
+      'SD17|新ソウルデッキ【ダークネスファング】','SD16|属性開眼デッキ【サファイア】','SD15|属性開眼デッキ【トパーズ】',
+      'SD14|属性開眼デッキ【エメラルド】','SD13|属性開眼デッキ【アメジスト】','SD12|はじめてのバトルセット【出撃!シャイニングソード】',
+      'SD11|白夜王ヤイバデッキ【ダークラッシュ】','SD10|ツルギデッキ【シャイニングチャージ】','SD09|はじめてのバトルセット【VSハイランカー】',
+      'SD08|ハイランカーデッキ 究極のダブルノヴァデッキ','SD07|はじめてのバトルセット','SD06|陽昇ハジメデッキ バーストヒーローズ',
+      'SD03C|馬神ダンデッキ ブレイブセンチュリオン','SD05|ハイランカーデッキ 武装機神ダイヤモンド',
+      'SD04|ハイランカーデッキ ジーク進化レボリューション','SD04|ハイランカーデッキ デスクロスブースト',
+      'SD03|馬神ダンデッキ 太陽の合体ドラゴン','SD02|轟天のヘヴンズドア〜ROARING HEAVEN’S DOOR〜',
+      'SD01|白銀の機神〜DIAMOND DEITY〜','SD01|紅蓮の稲妻〜BLAZING THUNDER〜',
+      '#― 初期スターターデッキ（コードは BS）―',
+      'BS03|闘神の鼓動〜GLADIATOR’S BEAT〜','BS03|覇者の閃光〜DYNAST’S FORCE〜',
+      'BS01|混沌の守護神〜CHAOS GUARDIAN〜','BS01|爆炎の流星〜BURNING STARDUST〜'
+    ]),
+    BSC:pgList([
+      'BSC51|ディーバブースター【メモリアルレコード】','BSC50|アニメブースター【RESONATING STARS】','BSC49|ドリームブースター【巡る星々】',
+      'BSC48|アニメブースター【バーニングレガシー】','BSC47|テーマブースター【REBIRTH OF LEGENDS】','BSC46|ディーバブースター【10thアフターパーティー】',
+      'BSC45|ドリームブースター【巡るヒカリ】','BSC44|テーマブースター【AGE OF AVENGERS】','BSC43|ディーバブースター【10thパーティー】',
+      'BSC42|ドラフトブースター【巡るキセキ】','BSC41|GREATEST RECORD 2023','BSC40|ディーバブースター【白黒幻奏】',
+      'BSC39|ディーバブースター【詩姫の戦歌】','BSC38|Xレアパック2021','BSC37|オールキラブースター【プレミアムディーバセレクション】',
+      'BSC36|GREATEST RECORD 2020','BSC35|ディーバブースター【ドリームアイドルフェスティバル！】','BSC34|オールキラブースター【神光の導き】',
+      'BSC33|ディーバブースター【学園神話】','BSC32|ドリームブースター【俺たちのキセキ】','BSC31|ディーバブースター【真夏の学園】',
+      'BSC30|オールキラブースター【烈火伝承】','BSC29|ドリームブースター【バトスピフェスティバル】','BSC28|ディーバブースター【詩姫学園】',
+      'BSC27|オールキラブースター【究極再来】','BSC26|コラボブースター【怪獣王ノ咆哮】','BSC25|ドリームブースター【炎と風の異魔神】',
+      'BSC24|コラボブースター【ウルトラ怪獣超決戦】','BSC23|ディーバブースター【戦乱魂歌】','BSC22|リバイバルブースター【龍皇再誕】',
+      'BSC21|オールキラブースター【名刀コレクション】','BSC20|激闘！戦国15ノ陣','BSC19|コラボブースター【東宝怪獣大決戦】',
+      'BSC18|ディーバブースター【詩姫の交響曲】','BSC17|オールキラブースター【眩き究極の王者】','BSC16|ディーバブースター【女神達の調べ】',
+      'BSC15|ドリームブースター【バーストインパクト】','BSC14|Xレアパック【キングマスターエディション】','BSC13|ライフカウンターセット',
+      'BSC12|星座編12宮ブースター【後編】','BSC11|星座編12宮ブースター【前編】','BSC10|Xレアパック【プレミアムエディション】',
+      'BSC09|ヒーローハイランカーパック','BSC08|Xレアパック【超覚醒!ガイ・ガイ・アスラ】','BSC07|Xレアパック【レジェンドエディション】',
+      'BSC06|ハイランカーパック','BSC05|太陽のブレイヴパック','BSC04|少年激覇カードバトラーズパック ダブル',
+      'BSC03|Xレアパック【魔焔帝ジークフリード】','BSC02|少年激覇カードバトラーズパック','BSC01|Xレアパック【龍皇ジークフリード】'
+    ]),
+    CB:pgList([
+      'CB34|コラボブースター【仮面ライダー 〜善悪の選択〜】','CB33|コラボブースター【ペルソナ3 リロード】',
+      'CB32|コラボブースター【ウルトラマン 〜イマジネーションパワー〜】','CB31|コラボブースター【仮面ライダー 〜Exceed the limit〜】',
+      'CB30|コラボブースター【仮面ライダー 〜神秘なる願い〜】','CB29|コラボブースター【ガンダム 〜魔女の宿命〜】',
+      'CB28|コラボブースター【ゴジラ 〜怪獣王ノ帰還〜】','CB27|コラボブースター【仮面ライダー 〜悪魔の覚醒〜】',
+      'CB26|コラボブースター【TIGER & BUNNY 〜HERO SCRAMBLE〜】','CB25|コラボブースター【ガンダム 〜魔女の廻り合い〜】',
+      'CB24|コラボブースター【仮面ライダー 〜最高の相棒〜】','CB23|コラボブースター【エヴァンゲリオン 〜シンエヴァの贖罪〜】',
+      'CB22|コラボブースター【ウルトラマン 〜受け継がれる光〜】','CB21|コラボブースター【エヴァンゲリオン 〜胎動の序曲〜】',
+      'CB20|コラボブースター【仮面ライダー 〜Extra Expansion〜】','CB19|コラボブースターSP【仮面ライダー 〜僕らの希望〜】',
+      'CB18|コラボブースター【ウルトラマン 〜ウルトラヒーロー英雄譚〜】','CB17|コラボブースター【仮面ライダー 〜響鳴する剣〜】',
+      'CB16|コラボブースター【ガンダム 〜戦場に咲く鉄の華〜】','CB15|コラボブースター【仮面ライダー 〜相棒との道〜】',
+      'CB14|コラボブースター【オールアイカツ！ドリームオンステージ】','CB13|コラボブースター【ガンダム 〜宇宙を駆ける戦士〜】',
+      'CB12|コラボブースター【仮面ライダー 〜Extreme edition〜】','CB11|コラボブースター【デジモン 〜LAST EVOLUTION〜】',
+      'CB10|コラボブースター【仮面ライダー 〜開戦！ライダーウォーズ〜】','CB09|コラボブースター【仮面ライダー 〜新世界への進化〜】',
+      'CB08|コラボブースター【仮面ライダー 〜欲望と切札と王の誕生〜】','CB07|コラボブースター【デジモン 〜決めろ！カードクラッシュ〜】',
+      'CB06|コラボブースター【仮面ライダー 〜疾走する運命〜】','CB05|コラボブースター【デジモン 〜ぼくらのデジモンアドベンチャー〜】',
+      'CB04|コラボブースター【仮面ライダー 〜伝説の始まり〜】','CB03|コラボブースター【デジモン超進化！Ver.1.5】',
+      'CB02|コラボブースター【デジモン超進化！】','CB01|コラボブースター【ウルトラヒーロー大集結】'
+    ])
+  };
+  function updatePackGuide(){
+    var v=$('#searchInput').value.trim().toUpperCase();
+    var g=$('#packGuide');
+    if(!PACK_GUIDE[v]){g.classList.add('hidden');g.innerHTML='';return;}
+    renderPackGuide(v);g.classList.remove('hidden');
+  }
+  function renderPackGuide(key){
+    var g=$('#packGuide');g.innerHTML='';
+    var titles={BS:'ブースターパック（BS）',SD:'構築済みデッキ（SD）',BSC:'BSC ブースター各種',CB:'コラボブースター（CB）'};
+    g.appendChild(el('h4',null,(titles[key]||key)+' — クリックでIDの先頭を検索欄へ'));
+    PACK_GUIDE[key].forEach(function(row){
+      if(row.sub){g.appendChild(el('div','pg-sub',esc(row.sub)));return;}
+      var it=el('div','pg-item');
+      it.appendChild(el('span','pg-code',esc(row.code)));
+      it.appendChild(el('span',null,esc(row.name)));
+      it.onclick=function(){$('#searchInput').value=row.code+'-';updatePackGuide();$('#searchInput').focus();};
+      g.appendChild(it);
+    });
   }
 
   // =========================================================================
