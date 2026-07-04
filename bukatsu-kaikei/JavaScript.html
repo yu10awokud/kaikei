@@ -170,11 +170,14 @@ function renderDay() {
     status.className = 'status-line';
   }
 
-  // 出席リスト
+  // 出席リスト（マネはプール代の差引対象外。出席自体は記録される）
   var list = document.getElementById('attendList');
   list.innerHTML = d.members.map(function (m) {
-    return '<div class="attend-item' + (m.present ? ' present' : '') + '" data-id="' + m.id + '">' +
-      '<span>' + esc(m.name) + ' <span class="sub">' + esc(m.grade) + '</span></span>' +
+    var isMane = m.role === 'マネ';
+    var sub = isMane ? 'マネ・対象外' : esc(m.grade);
+    return '<div class="attend-item' + (m.present ? ' present' : '') + (isMane ? ' mane' : '') +
+      '" data-id="' + m.id + '" data-role="' + esc(m.role) + '">' +
+      '<span>' + esc(m.name) + ' <span class="sub">' + sub + '</span></span>' +
       '<span class="check">✓</span></div>';
   }).join('') || '<p style="color:#6b7280;font-size:13px;">部員が登録されていません。マスタから追加してください。</p>';
 
@@ -229,13 +232,19 @@ function settle() {
   var d = state.day;
   if (!d.pool) { alert('先に使用プールを設定してください'); return; }
   if (d.price == null) { alert('プール「' + d.pool + '」の料金がマスタに未登録です'); return; }
-  var present = document.querySelectorAll('#attendList .attend-item.present').length;
-  if (!confirm(d.date + ' の出席者 ' + present + '名から、1人 ' + yen(d.price) + ' を差し引きます。よろしいですか？\n※出席を保存済みの状態で実行してください。')) return;
+  var presentItems = document.querySelectorAll('#attendList .attend-item.present');
+  var chargeable = 0;
+  presentItems.forEach(function (el) { if (el.dataset.role !== 'マネ') chargeable++; });
+  var maneCount = presentItems.length - chargeable;
+  var maneNote = maneCount > 0 ? '（マネ ' + maneCount + '名は対象外）' : '';
+  if (chargeable === 0) { alert('差引対象（マネ以外）の出席者がいません'); return; }
+  if (!confirm(d.date + ' の対象者 ' + chargeable + '名から、1人 ' + yen(d.price) + ' を差し引きます' + maneNote + '。よろしいですか？\n※出席を保存済みの状態で実行してください。')) return;
   loading(true);
   call('settleDay', [d.date]).then(function (res) {
     loading(false);
     if (!res.ok) { alert(res.msg); return; }
-    alert('精算しました（' + res.count + '名 × ' + yen(res.price) + '）');
+    var skip = res.skipped ? '（マネ ' + res.skipped + '名は対象外）' : '';
+    alert('精算しました（' + res.count + '名 × ' + yen(res.price) + '）' + skip);
     loadDay();
     refreshMonth();
   });

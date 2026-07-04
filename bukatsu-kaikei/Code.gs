@@ -328,13 +328,22 @@ function settleDay(date) {
   const ids = presentIds_(iso);
   if (ids.length === 0) return { ok: false, msg: 'この日の出席者が記録されていません。' };
 
+  // マネ（マネージャー）はプール代がかからないため、差引対象から除外する。
+  // 出席自体は記録されているので、出席ランキングには引き続き計上される。
+  const mm = memberMap_();
+  const chargeIds = ids.filter(function (id) { return !mm[id] || mm[id].role !== 'マネ'; });
+  if (chargeIds.length === 0) {
+    return { ok: false, msg: '出席者がマネさんのみのため、差引対象がいません。' };
+  }
+
   const pay = sheet_(SHEET_PAYMENT);
-  const rows = ids.map(function (id) { return [Utilities.getUuid(), iso, id, sched.pool, price]; });
+  const rows = chargeIds.map(function (id) { return [Utilities.getUuid(), iso, id, sched.pool, price]; });
   pay.getRange(pay.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
 
   // 精算済フラグを立てる
   sheet_(SHEET_SCHEDULE).getRange(sched.rowIndex, 3).setValue(true);
-  return { ok: true, count: rows.length, price: price, pool: sched.pool };
+  const skipped = ids.length - chargeIds.length;
+  return { ok: true, count: rows.length, skipped: skipped, price: price, pool: sched.pool };
 }
 
 // 精算の取り消し（その日の支払い履歴を削除し、精算済フラグを下ろす）
