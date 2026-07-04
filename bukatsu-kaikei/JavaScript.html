@@ -173,11 +173,10 @@ function renderDay() {
   // 出席リスト（マネは原則プール代の差引対象外。ただし「マネも徴収」プールは対象）
   var list = document.getElementById('attendList');
   list.innerHTML = d.members.map(function (m) {
-    var isMane = m.role === 'マネ';
-    var exempt = isMane && !d.chargeMane; // このプールで差引対象外か
-    var sub = isMane ? (exempt ? 'マネ・対象外' : 'マネ・徴収対象') : esc(m.grade);
+    var exempt = m.isMane && !d.chargeMane; // このプールで差引対象外か
+    var sub = m.isMane ? (exempt ? 'マネ・対象外' : 'マネ・徴収対象') : esc(m.grade);
     return '<div class="attend-item' + (m.present ? ' present' : '') + (exempt ? ' mane' : '') +
-      '" data-id="' + m.id + '" data-role="' + esc(m.role) + '">' +
+      '" data-id="' + m.id + '" data-mane="' + (m.isMane ? '1' : '0') + '">' +
       '<span>' + esc(m.name) + ' <span class="sub">' + sub + '</span></span>' +
       '<span class="check">✓</span></div>';
   }).join('') || '<p style="color:#6b7280;font-size:13px;">部員が登録されていません。マスタから追加してください。</p>';
@@ -236,7 +235,7 @@ function settle() {
   var presentItems = document.querySelectorAll('#attendList .attend-item.present');
   var exemptMane = !d.chargeMane; // このプールでマネを除外するか
   var chargeable = 0;
-  presentItems.forEach(function (el) { if (!(exemptMane && el.dataset.role === 'マネ')) chargeable++; });
+  presentItems.forEach(function (el) { if (!(exemptMane && el.dataset.mane === '1')) chargeable++; });
   var maneCount = presentItems.length - chargeable;
   var maneNote = maneCount > 0 ? '（マネ ' + maneCount + '名は対象外）' : '';
   if (chargeable === 0) { alert('差引対象（マネ以外）の出席者がいません'); return; }

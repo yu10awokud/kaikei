@@ -141,6 +141,13 @@ function memberMap_() {
   return map;
 }
 
+// 区分が「マネ」かどうかを頑丈に判定する。
+// 完全一致に頼らず、前後空白を除いて「マネ」で始まればマネ扱いにする
+// （'マネ' / 'マネージャー' / ' マネ ' などの表記ゆれを吸収）。
+function isMane_(role) {
+  return String(role == null ? '' : role).trim().indexOf('マネ') === 0;
+}
+
 // ===== 部員マスタ =====
 function getMembers() {
   setupSheets_();
@@ -292,7 +299,8 @@ function getDay(date) {
   const members = getMembers().map(function (m) {
     return {
       id: m.id, name: m.name, grade: m.grade, dept: m.dept,
-      role: m.role, status: m.status, present: !!presentSet[m.id]
+      role: m.role, status: m.status, isMane: isMane_(m.role),
+      present: !!presentSet[m.id]
     };
   });
   return {
@@ -360,7 +368,7 @@ function settleDay(date) {
   const mm = memberMap_();
   const chargeIds = chargeMane
     ? ids
-    : ids.filter(function (id) { return !mm[id] || mm[id].role !== 'マネ'; });
+    : ids.filter(function (id) { return !mm[id] || !isMane_(mm[id].role); });
   if (chargeIds.length === 0) {
     return { ok: false, msg: '出席者がマネさんのみのため、差引対象がいません。' };
   }
