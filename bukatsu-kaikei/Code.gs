@@ -31,16 +31,17 @@ const SHEET_PAYMENT  = '支払い履歴';
 // 各シートのヘッダー（列順そのまま）
 const HEADERS = {};
 HEADERS[SHEET_MEMBERS]  = ['部員ID', '氏名', '学年', '学科', '区分', '状態'];
-HEADERS[SHEET_POOLS]    = ['プール名', '料金'];
+HEADERS[SHEET_POOLS]    = ['プール名', '料金', 'マネも徴収'];
 HEADERS[SHEET_SCHEDULE] = ['日付', '使用プール', '精算済'];
 HEADERS[SHEET_ATTEND]   = ['ID', '日付', '部員ID', '出席'];
 HEADERS[SHEET_CHARGE]   = ['ID', '日付', '部員ID', '金額', 'メモ'];
 HEADERS[SHEET_PAYMENT]  = ['ID', '日付', '部員ID', 'プール名', '金額'];
 
 // 初回のみ投入するサンプルのプール（後から画面で編集可能）
+// [プール名, 料金, マネも徴収するか]
 const DEFAULT_POOLS = [
-  ['市民プール', 300],
-  ['スイミングスクール', 500]
+  ['市民プール', 300, false],
+  ['スイミングスクール', 500, false]
 ];
 
 // ===== Webアプリのエントリーポイント =====
@@ -70,10 +71,18 @@ function setupSheets_() {
       sheet.setFrozenRows(1);
       // プールマスタだけは初期サンプルを入れておく
       if (name === SHEET_POOLS) {
-        sheet.getRange(2, 1, DEFAULT_POOLS.length, 2).setValues(DEFAULT_POOLS);
+        sheet.getRange(2, 1, DEFAULT_POOLS.length, 3).setValues(DEFAULT_POOLS);
       }
     }
   });
+
+  // --- 既存シートへの列追加マイグレーション（データは保持したまま列だけ足す） ---
+  // プール代マスタに「マネも徴収」列（C列）を後付けする。
+  // 既存プールは未入力＝false扱いなので、これまで通りマネは除外される。
+  const pools = ss.getSheetByName(SHEET_POOLS);
+  if (pools && String(pools.getRange(1, 3).getValue()) !== 'マネも徴収') {
+    pools.getRange(1, 3).setValue('マネも徴収').setFontWeight('bold');
+  }
 
   // デフォルトの空シートが残っていれば削除
   const blank = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
@@ -179,7 +188,11 @@ function deleteMember(id) {
 function getPools() {
   setupSheets_();
   return rows_(SHEET_POOLS).map(function (r) {
-    return { name: String(r[0]), price: Number(r[1]) || 0 };
+    return {
+      name: String(r[0]),
+      price: Number(r[1]) || 0,
+      chargeMane: r[2] === true || r[2] === 'TRUE' // このプールはマネさんからも徴収するか
+    };
   });
 }
 
@@ -188,10 +201,10 @@ function savePool(p) {
   setupSheets_();
   const sh = sheet_(SHEET_POOLS);
   const key = p.originalName || p.name;
-  const row = [p.name, Number(p.price) || 0];
+  const row = [p.name, Number(p.price) || 0, !!p.chargeMane];
   const rowIndex = findRow_(SHEET_POOLS, 1, key);
   if (rowIndex > 0) {
-    sh.getRange(rowIndex, 1, 1, 2).setValues([row]);
+    sh.getRange(rowIndex, 1, 1, 3).setValues([row]);
   } else {
     sh.appendRow(row);
   }
@@ -204,9 +217,20 @@ function deletePool(name) {
   return { ok: true };
 }
 
-function poolPrice_(name) {
+function pool_(name) {
   const found = getPools().filter(function (p) { return p.name === name; });
-  return found.length ? found[0].price : null;
+  return found.length ? found[0] : null;
+}
+
+function poolPrice_(name) {
+  const p = pool_(name);
+  return p ? p.price : null;
+}
+
+// このプールはマネさんも徴収対象か（アクオンのような例外プール用）
+function poolChargesMane_(name) {
+  const p = pool_(name);
+  return p ? p.chargeMane : false;
 }
 
 // ===== 練習日程（①使用プールの設定） =====
@@ -276,6 +300,7 @@ function getDay(date) {
     pool: sched ? sched.pool : '',
     settled: sched ? sched.settled : false,
     price: sched ? poolPrice_(sched.pool) : null,
+    chargeMane: sched ? poolChargesMane_(sched.pool) : false,
     members: members
   };
 }
@@ -328,10 +353,14 @@ function settleDay(date) {
   const ids = presentIds_(iso);
   if (ids.length === 0) return { ok: false, msg: 'この日の出席者が記録されていません。' };
 
-  // マネ（マネージャー）はプール代がかからないため、差引対象から除外する。
+  // マネ（マネージャー）は原則プール代がかからないため差引対象から除外する。
+  // ただし「マネも徴収」がONのプール（アクオン等）は全員から徴収する。
   // 出席自体は記録されているので、出席ランキングには引き続き計上される。
+  const chargeMane = poolChargesMane_(sched.pool);
   const mm = memberMap_();
-  const chargeIds = ids.filter(function (id) { return !mm[id] || mm[id].role !== 'マネ'; });
+  const chargeIds = chargeMane
+    ? ids
+    : ids.filter(function (id) { return !mm[id] || mm[id].role !== 'マネ'; });
   if (chargeIds.length === 0) {
     return { ok: false, msg: '出席者がマネさんのみのため、差引対象がいません。' };
   }

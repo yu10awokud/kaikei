@@ -170,12 +170,13 @@ function renderDay() {
     status.className = 'status-line';
   }
 
-  // 出席リスト（マネはプール代の差引対象外。出席自体は記録される）
+  // 出席リスト（マネは原則プール代の差引対象外。ただし「マネも徴収」プールは対象）
   var list = document.getElementById('attendList');
   list.innerHTML = d.members.map(function (m) {
     var isMane = m.role === 'マネ';
-    var sub = isMane ? 'マネ・対象外' : esc(m.grade);
-    return '<div class="attend-item' + (m.present ? ' present' : '') + (isMane ? ' mane' : '') +
+    var exempt = isMane && !d.chargeMane; // このプールで差引対象外か
+    var sub = isMane ? (exempt ? 'マネ・対象外' : 'マネ・徴収対象') : esc(m.grade);
+    return '<div class="attend-item' + (m.present ? ' present' : '') + (exempt ? ' mane' : '') +
       '" data-id="' + m.id + '" data-role="' + esc(m.role) + '">' +
       '<span>' + esc(m.name) + ' <span class="sub">' + sub + '</span></span>' +
       '<span class="check">✓</span></div>';
@@ -233,8 +234,9 @@ function settle() {
   if (!d.pool) { alert('先に使用プールを設定してください'); return; }
   if (d.price == null) { alert('プール「' + d.pool + '」の料金がマスタに未登録です'); return; }
   var presentItems = document.querySelectorAll('#attendList .attend-item.present');
+  var exemptMane = !d.chargeMane; // このプールでマネを除外するか
   var chargeable = 0;
-  presentItems.forEach(function (el) { if (el.dataset.role !== 'マネ') chargeable++; });
+  presentItems.forEach(function (el) { if (!(exemptMane && el.dataset.role === 'マネ')) chargeable++; });
   var maneCount = presentItems.length - chargeable;
   var maneNote = maneCount > 0 ? '（マネ ' + maneCount + '名は対象外）' : '';
   if (chargeable === 0) { alert('差引対象（マネ以外）の出席者がいません'); return; }
@@ -372,8 +374,9 @@ function bindMemberModal() {
 function renderPoolTable() {
   var body = document.getElementById('poolTableBody');
   body.innerHTML = state.pools.map(function (p) {
+    var badge = p.chargeMane ? ' <span class="sub" style="color:var(--warn)">マネ徴収</span>' : '';
     return '<tr class="clickable" onclick="openPoolModal(\'' + esc(p.name).replace(/'/g, "\\'") + '\')">' +
-      '<td>' + esc(p.name) + '</td><td class="num">' + yen(p.price) + '</td><td>✏️</td></tr>';
+      '<td>' + esc(p.name) + badge + '</td><td class="num">' + yen(p.price) + '</td><td>✏️</td></tr>';
   }).join('') || '<tr><td colspan="3">プールが登録されていません</td></tr>';
 }
 function fillPoolSelect() {
@@ -389,6 +392,7 @@ function openPoolModal(name) {
   document.getElementById('poolModalTitle').textContent = p ? 'プールを編集' : 'プールを追加';
   document.getElementById('pName').value = p ? p.name : '';
   document.getElementById('pPrice').value = p ? p.price : '';
+  document.getElementById('pChargeMane').checked = p ? !!p.chargeMane : false;
   document.getElementById('pDeleteBtn').style.display = p ? '' : 'none';
   document.getElementById('poolModal').classList.add('show');
 }
@@ -402,7 +406,10 @@ function bindPoolModal() {
     if (!name) { alert('プール名を入力してください'); return; }
     if (isNaN(price) || price < 0) { alert('料金を入力してください'); return; }
     loading(true);
-    call('savePool', [{ originalName: state.editingPoolName, name: name, price: price }]).then(function () {
+    call('savePool', [{
+      originalName: state.editingPoolName, name: name, price: price,
+      chargeMane: document.getElementById('pChargeMane').checked
+    }]).then(function () {
       document.getElementById('poolModal').classList.remove('show');
       return loadMasters();
     }).then(function () { loading(false); loadDay(); });
