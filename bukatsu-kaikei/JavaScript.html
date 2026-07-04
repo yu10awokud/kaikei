@@ -1,0 +1,410 @@
+<script>
+// ===== 状態 =====
+var state = {
+  year:  new Date().getFullYear(),
+  month: new Date().getMonth() + 1,
+  members: [],
+  pools: [],
+  day: null,          // 練習日画面の現在データ
+  editingMemberId: null,
+  editingPoolName: null
+};
+
+// ===== ユーティリティ =====
+function yen(n) {
+  n = Math.round(Number(n) || 0);
+  return (n < 0 ? '-' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
+}
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function isoToday() {
+  var d = new Date();
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function loading(on) { document.getElementById('loading').classList.toggle('show', on); }
+
+// google.script.run を Promise で扱う
+function call(fn, args) {
+  return new Promise(function (resolve, reject) {
+    var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
+    runner[fn].apply(runner, args || []);
+  });
+}
+
+// ===== 初期化 =====
+document.addEventListener('DOMContentLoaded', function () {
+  // タブ切り替え
+  document.querySelectorAll('.tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      t.classList.add('active');
+      document.getElementById(t.dataset.tab).classList.add('active');
+    });
+  });
+
+  document.getElementById('prevMonth').addEventListener('click', function () { changeMonth(-1); });
+  document.getElementById('nextMonth').addEventListener('click', function () { changeMonth(1); });
+
+  // 練習日
+  document.getElementById('practiceDate').value = isoToday();
+  document.getElementById('practiceDate').addEventListener('change', loadDay);
+  document.getElementById('savePoolBtn').addEventListener('click', savePracticePool);
+  document.getElementById('saveAttendBtn').addEventListener('click', saveAttend);
+  document.getElementById('settleBtn').addEventListener('click', settle);
+  document.getElementById('unsettleBtn').addEventListener('click', unsettle);
+  document.getElementById('allPresentBtn').addEventListener('click', markAllPresent);
+
+  // チャージ
+  document.getElementById('chargeDate').value = isoToday();
+  document.getElementById('chargeAddBtn').addEventListener('click', addCharge);
+
+  // マスタ
+  document.getElementById('addMemberBtn').addEventListener('click', function () { openMemberModal(null); });
+  document.getElementById('addPoolBtn').addEventListener('click', function () { openPoolModal(null); });
+  bindMemberModal();
+  bindPoolModal();
+
+  // 初回ロード
+  loadMasters().then(function () {
+    loadDay();
+    refreshMonth();
+  });
+});
+
+function changeMonth(delta) {
+  var m = state.month + delta, y = state.year;
+  if (m < 1) { m = 12; y--; }
+  if (m > 12) { m = 1; y++; }
+  state.month = m; state.year = y;
+  refreshMonth();
+}
+
+// ===== マスタ読み込み（部員・プール） =====
+function loadMasters() {
+  return Promise.all([call('getMembers'), call('getPools')]).then(function (res) {
+    state.members = res[0];
+    state.pools = res[1];
+    renderMemberTable();
+    renderPoolTable();
+    fillPoolSelect();
+    fillChargeMemberSelect();
+  });
+}
+
+// ===== 月次データ（残高・チャージ・出席ランキング） =====
+function refreshMonth() {
+  loading(true);
+  document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
+  return Promise.all([
+    call('getBalanceRanking'),
+    call('getCharges', [state.year, state.month]),
+    call('getAttendanceRanking', [state.year, state.month])
+  ]).then(function (res) {
+    renderBalances(res[0]);
+    renderCharges(res[1]);
+    renderAttendRanking(res[2]);
+    loading(false);
+  }).catch(function (err) {
+    loading(false);
+    alert('読み込みエラー: ' + err.message);
+  });
+}
+
+// ===== 残高・ランキング =====
+function renderBalances(data) {
+  var richList = document.getElementById('richList');
+  var debtList = document.getElementById('debtList');
+  richList.innerHTML = data.rich.map(rankLi).join('') || '<li>データなし</li>';
+  debtList.innerHTML = data.debt.map(rankLi).join('') || '<li>データなし</li>';
+
+  var body = document.getElementById('balanceTableBody');
+  body.innerHTML = data.all.map(function (m) {
+    var cls = m.balance < 0 ? 'minus' : (m.balance > 0 ? 'plus' : '');
+    return '<tr>' +
+      '<td>' + esc(m.name) + (m.status === '引退' ? ' <span class="sub">(引退)</span>' : '') + '</td>' +
+      '<td class="num">' + yen(m.charged) + '</td>' +
+      '<td class="num">' + yen(m.paid) + '</td>' +
+      '<td class="num ' + cls + '"><b>' + yen(m.balance) + '</b></td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="4">部員が登録されていません</td></tr>';
+}
+function rankLi(m) {
+  var cls = m.balance < 0 ? 'minus' : 'plus';
+  return '<li><span>' + esc(m.name) + '</span><span class="amt ' + cls + '">' + yen(m.balance) + '</span></li>';
+}
+
+// ===== 練習日（①②③） =====
+function loadDay() {
+  var date = document.getElementById('practiceDate').value;
+  if (!date) return;
+  loading(true);
+  return call('getDay', [date]).then(function (d) {
+    state.day = d;
+    renderDay();
+    loading(false);
+  }).catch(function (err) { loading(false); alert('読み込みエラー: ' + err.message); });
+}
+
+function renderDay() {
+  var d = state.day;
+  // プール選択
+  var sel = document.getElementById('practicePool');
+  sel.value = d.pool || '';
+
+  // ステータス表示
+  var status = document.getElementById('practiceStatus');
+  if (d.settled) {
+    status.textContent = '✅ 精算済み（' + esc(d.pool) + ' / 1人 ' + yen(d.price) + '）';
+    status.className = 'status-line settled';
+  } else if (d.pool) {
+    var priceText = d.price == null ? '⚠️ 料金未登録' : '1人 ' + yen(d.price);
+    status.textContent = 'プール: ' + esc(d.pool) + '（' + priceText + '） / 未精算';
+    status.className = 'status-line';
+  } else {
+    status.textContent = 'プール未設定';
+    status.className = 'status-line';
+  }
+
+  // 出席リスト
+  var list = document.getElementById('attendList');
+  list.innerHTML = d.members.map(function (m) {
+    return '<div class="attend-item' + (m.present ? ' present' : '') + '" data-id="' + m.id + '">' +
+      '<span>' + esc(m.name) + ' <span class="sub">' + esc(m.grade) + '</span></span>' +
+      '<span class="check">✓</span></div>';
+  }).join('') || '<p style="color:#6b7280;font-size:13px;">部員が登録されていません。マスタから追加してください。</p>';
+
+  if (!d.settled) {
+    list.querySelectorAll('.attend-item').forEach(function (el) {
+      el.addEventListener('click', function () { el.classList.toggle('present'); });
+    });
+  }
+
+  // ボタンの活性/非活性
+  var settled = d.settled;
+  document.getElementById('savePoolBtn').disabled = settled;
+  document.getElementById('practicePool').disabled = settled;
+  document.getElementById('saveAttendBtn').style.display = settled ? 'none' : '';
+  document.getElementById('allPresentBtn').style.display = settled ? 'none' : '';
+  document.getElementById('settleBtn').style.display = settled ? 'none' : '';
+  document.getElementById('unsettleBtn').style.display = settled ? '' : 'none';
+}
+
+function savePracticePool() {
+  var date = document.getElementById('practiceDate').value;
+  var pool = document.getElementById('practicePool').value;
+  loading(true);
+  call('saveSchedule', [date, pool]).then(function (res) {
+    if (!res.ok) { loading(false); alert(res.msg); return; }
+    return loadDay().then(function () { loading(false); refreshMonth(); });
+  });
+}
+
+function markAllPresent() {
+  document.querySelectorAll('#attendList .attend-item').forEach(function (el) {
+    el.classList.add('present');
+  });
+}
+
+function saveAttend() {
+  var date = document.getElementById('practiceDate').value;
+  var ids = [];
+  document.querySelectorAll('#attendList .attend-item.present').forEach(function (el) {
+    ids.push(el.dataset.id);
+  });
+  loading(true);
+  call('saveAttendance', [date, ids]).then(function (res) {
+    loading(false);
+    if (!res.ok) { alert(res.msg); return; }
+    alert('出席を保存しました（' + res.count + '名）');
+    refreshMonth();
+  });
+}
+
+function settle() {
+  var d = state.day;
+  if (!d.pool) { alert('先に使用プールを設定してください'); return; }
+  if (d.price == null) { alert('プール「' + d.pool + '」の料金がマスタに未登録です'); return; }
+  var present = document.querySelectorAll('#attendList .attend-item.present').length;
+  if (!confirm(d.date + ' の出席者 ' + present + '名から、1人 ' + yen(d.price) + ' を差し引きます。よろしいですか？\n※出席を保存済みの状態で実行してください。')) return;
+  loading(true);
+  call('settleDay', [d.date]).then(function (res) {
+    loading(false);
+    if (!res.ok) { alert(res.msg); return; }
+    alert('精算しました（' + res.count + '名 × ' + yen(res.price) + '）');
+    loadDay();
+    refreshMonth();
+  });
+}
+
+function unsettle() {
+  if (!confirm('この日の精算を取り消します。支払い履歴からこの日の差引を削除します。よろしいですか？')) return;
+  var date = document.getElementById('practiceDate').value;
+  loading(true);
+  call('unsettleDay', [date]).then(function () {
+    loading(false);
+    loadDay();
+    refreshMonth();
+  });
+}
+
+// ===== チャージ（④） =====
+function renderCharges(charges) {
+  var total = 0;
+  var body = document.getElementById('chargeTableBody');
+  body.innerHTML = charges.map(function (c) {
+    total += c.amount;
+    return '<tr>' +
+      '<td>' + c.date + '</td>' +
+      '<td>' + esc(c.memberName) + '</td>' +
+      '<td class="num">' + yen(c.amount) + '</td>' +
+      '<td>' + esc(c.memo) + '</td>' +
+      '<td><button class="del-btn" onclick="deleteCharge(\'' + c.id + '\')">削除</button></td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="5">今月のチャージはありません</td></tr>';
+  document.getElementById('chargeMonthSum').textContent = '今月のチャージ合計: ' + yen(total);
+}
+
+function addCharge() {
+  var memberId = document.getElementById('chargeMember').value;
+  var amount = parseFloat(document.getElementById('chargeAmount').value);
+  var date = document.getElementById('chargeDate').value;
+  if (!memberId) { alert('部員を選択してください'); return; }
+  if (!amount || amount <= 0) { alert('金額を入力してください'); return; }
+  if (!date) { alert('日付を入力してください'); return; }
+  loading(true);
+  call('addCharge', [{ memberId: memberId, amount: amount, date: date, memo: document.getElementById('chargeMemo').value }])
+    .then(function () {
+      document.getElementById('chargeAmount').value = '';
+      document.getElementById('chargeMemo').value = '';
+      loading(false);
+      refreshMonth();
+    });
+}
+
+function deleteCharge(id) {
+  if (!confirm('このチャージ記録を削除しますか？')) return;
+  loading(true);
+  call('deleteCharge', [id]).then(function () { loading(false); refreshMonth(); });
+}
+
+// ===== 出席ランキング（⑥） =====
+function renderAttendRanking(data) {
+  document.getElementById('attendTotalDays').textContent = '今月の練習日数: ' + data.totalDays + '日';
+  var body = document.getElementById('attendRankBody');
+  body.innerHTML = data.ranking.map(function (m, i) {
+    return '<tr><td>' + (i + 1) + '</td><td>' + esc(m.name) + '</td><td class="num">' + m.count + '回</td></tr>';
+  }).join('') || '<tr><td colspan="3">データがありません</td></tr>';
+}
+
+// ===== マスタ：部員 =====
+function renderMemberTable() {
+  var body = document.getElementById('memberTableBody');
+  body.innerHTML = state.members.map(function (m) {
+    return '<tr class="clickable" onclick="openMemberModal(\'' + m.id + '\')">' +
+      '<td>' + esc(m.name) + '</td><td>' + esc(m.grade) + '</td><td>' + esc(m.dept) + '</td>' +
+      '<td>' + esc(m.role) + '</td><td>' + esc(m.status) + '</td>' +
+      '<td>✏️</td></tr>';
+  }).join('') || '<tr><td colspan="6">部員が登録されていません</td></tr>';
+}
+function fillChargeMemberSelect() {
+  var sel = document.getElementById('chargeMember');
+  sel.innerHTML = '<option value="">部員を選択</option>' +
+    state.members.map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('');
+}
+function openMemberModal(id) {
+  state.editingMemberId = id;
+  var m = id ? state.members.filter(function (x) { return x.id === id; })[0] : null;
+  document.getElementById('memberModalTitle').textContent = m ? '部員を編集' : '部員を追加';
+  document.getElementById('mName').value = m ? m.name : '';
+  document.getElementById('mGrade').value = m ? m.grade : '';
+  document.getElementById('mDept').value = m ? m.dept : '';
+  document.getElementById('mRole').value = m ? m.role : 'プレ';
+  document.getElementById('mStatus').value = m ? m.status : '現役';
+  document.getElementById('mDeleteBtn').style.display = m ? '' : 'none';
+  document.getElementById('memberModal').classList.add('show');
+}
+function bindMemberModal() {
+  document.getElementById('mCancelBtn').addEventListener('click', function () {
+    document.getElementById('memberModal').classList.remove('show');
+  });
+  document.getElementById('mSaveBtn').addEventListener('click', function () {
+    var name = document.getElementById('mName').value.trim();
+    if (!name) { alert('氏名を入力してください'); return; }
+    var m = {
+      id: state.editingMemberId,
+      name: name,
+      grade: document.getElementById('mGrade').value.trim(),
+      dept: document.getElementById('mDept').value.trim(),
+      role: document.getElementById('mRole').value,
+      status: document.getElementById('mStatus').value
+    };
+    loading(true);
+    call('saveMember', [m]).then(function () {
+      document.getElementById('memberModal').classList.remove('show');
+      return loadMasters();
+    }).then(function () { loading(false); refreshMonth(); loadDay(); });
+  });
+  document.getElementById('mDeleteBtn').addEventListener('click', function () {
+    if (!confirm('この部員を削除しますか？（過去のチャージ・支払い履歴は残ります）')) return;
+    loading(true);
+    call('deleteMember', [state.editingMemberId]).then(function () {
+      document.getElementById('memberModal').classList.remove('show');
+      return loadMasters();
+    }).then(function () { loading(false); refreshMonth(); loadDay(); });
+  });
+}
+
+// ===== マスタ：プール =====
+function renderPoolTable() {
+  var body = document.getElementById('poolTableBody');
+  body.innerHTML = state.pools.map(function (p) {
+    return '<tr class="clickable" onclick="openPoolModal(\'' + esc(p.name).replace(/'/g, "\\'") + '\')">' +
+      '<td>' + esc(p.name) + '</td><td class="num">' + yen(p.price) + '</td><td>✏️</td></tr>';
+  }).join('') || '<tr><td colspan="3">プールが登録されていません</td></tr>';
+}
+function fillPoolSelect() {
+  var sel = document.getElementById('practicePool');
+  var current = sel.value;
+  sel.innerHTML = '<option value="">（未設定）</option>' +
+    state.pools.map(function (p) { return '<option value="' + esc(p.name) + '">' + esc(p.name) + '（' + yen(p.price) + '）</option>'; }).join('');
+  sel.value = current;
+}
+function openPoolModal(name) {
+  state.editingPoolName = name;
+  var p = name ? state.pools.filter(function (x) { return x.name === name; })[0] : null;
+  document.getElementById('poolModalTitle').textContent = p ? 'プールを編集' : 'プールを追加';
+  document.getElementById('pName').value = p ? p.name : '';
+  document.getElementById('pPrice').value = p ? p.price : '';
+  document.getElementById('pDeleteBtn').style.display = p ? '' : 'none';
+  document.getElementById('poolModal').classList.add('show');
+}
+function bindPoolModal() {
+  document.getElementById('pCancelBtn').addEventListener('click', function () {
+    document.getElementById('poolModal').classList.remove('show');
+  });
+  document.getElementById('pSaveBtn').addEventListener('click', function () {
+    var name = document.getElementById('pName').value.trim();
+    var price = parseFloat(document.getElementById('pPrice').value);
+    if (!name) { alert('プール名を入力してください'); return; }
+    if (isNaN(price) || price < 0) { alert('料金を入力してください'); return; }
+    loading(true);
+    call('savePool', [{ originalName: state.editingPoolName, name: name, price: price }]).then(function () {
+      document.getElementById('poolModal').classList.remove('show');
+      return loadMasters();
+    }).then(function () { loading(false); loadDay(); });
+  });
+  document.getElementById('pDeleteBtn').addEventListener('click', function () {
+    if (!confirm('このプールを削除しますか？')) return;
+    loading(true);
+    call('deletePool', [state.editingPoolName]).then(function () {
+      document.getElementById('poolModal').classList.remove('show');
+      return loadMasters();
+    }).then(function () { loading(false); loadDay(); });
+  });
+}
+</script>
