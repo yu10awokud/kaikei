@@ -778,12 +778,12 @@ function generateBalancePdf(year, month, notes) {
   const sh = ss.insertSheet('_pdf_' + stamp);
   let lastRow = 1;
   try {
-    sh.setColumnWidth(1, 95);   // 左：氏名
-    sh.setColumnWidth(2, 105);  // 左：金額
-    sh.setColumnWidth(3, 28);   // 余白
-    sh.setColumnWidth(4, 82);   // 右：順位
-    sh.setColumnWidth(5, 205);  // 右：氏名
-    sh.setColumnWidth(6, 105);  // 右：金額
+    sh.setColumnWidth(1, 120);  // 左：氏名（広め）
+    sh.setColumnWidth(2, 122);  // 左：金額（広め）
+    sh.setColumnWidth(3, 20);   // 余白
+    sh.setColumnWidth(4, 62);   // 右：順位（狭め）
+    sh.setColumnWidth(5, 150);  // 右：氏名（狭め）
+    sh.setColumnWidth(6, 86);   // 右：金額（狭め）
 
     // タイトル
     sh.getRange('A1:F1').merge().setValue('会計　' + titleDate + ' 現在')
@@ -798,7 +798,7 @@ function generateBalancePdf(year, month, notes) {
         const bal = Math.round(mm.balance);
         sh.getRange(r, 1).setValue(mm.name).setBackground(bg).setHorizontalAlignment('center');
         const amt = sh.getRange(r, 2).setValue(yen_(bal)).setBackground(goldBg)
-          .setHorizontalAlignment('right').setFontWeight('bold');
+          .setHorizontalAlignment('right');
         if (bal < 0) amt.setFontColor(negColor);
         // 学年の変わり目に点線で区切り
         if (idx > 0 && j === 0) {
@@ -822,12 +822,19 @@ function generateBalancePdf(year, month, notes) {
     sh.getRange(rr, 4, 1, 3).merge().setValue('月間 出席ランキング 🏊（' + y + '年' + m + '月）').setFontSize(12).setFontWeight('bold'); rr++;
     rr = writeAttBlock_(sh, rr, tiers); rr++;
 
-    // メモ（徴収内容／徴収予定／昨月徴収歴）
+    // メモ（徴収内容／徴収予定／昨月徴収歴）。折り返さず1行ずつ別の行に書く。
     [['［徴収内容］', memo.collected], ['［徴収予定］', memo.planned], ['［昨月徴収歴］', memo.history]].forEach(function (b) {
       sh.getRange(rr, 4, 1, 3).merge().setValue(b[0]).setFontWeight('bold'); rr++;
-      sh.getRange(rr, 4, 1, 3).merge().setValue(b[1] || '').setWrap(true).setVerticalAlignment('top'); rr += 2;
+      const lines = String(b[1] || '').split('\n');
+      lines.forEach(function (line) {
+        sh.getRange(rr, 4, 1, 3).merge().setValue(line); rr++;
+      });
+      rr++; // ブロック間の余白
     });
     lastRow = Math.max(lastRow, rr);
+
+    // フォントを丸ゴシック体（ヒラギノ丸ゴに最も近いGoogle提供フォント）に統一
+    sh.getRange(1, 1, lastRow, 6).setFontFamily('M PLUS Rounded 1c');
 
     SpreadsheetApp.flush();
     const blob = exportSheetAsPdf_(ss, sh, lastRow, '会計_' + stamp);
@@ -846,9 +853,9 @@ function writeRankBlock_(sh, startRow, arr, klass, negColor) {
     let posBg, cellBg;
     if (klass === 'rich') { posBg = (i === 0) ? '#ffe000' : '#ffe94d'; cellBg = '#fbfbc6'; }
     else                  { posBg = (i === 0) ? '#9aa6b8' : '#b3bccb'; cellBg = '#dde2ea'; }
-    sh.getRange(r, 4).setValue('第' + (i + 1) + '位').setBackground(posBg).setFontWeight('bold').setHorizontalAlignment('center');
+    sh.getRange(r, 4).setValue('第' + (i + 1) + '位').setBackground(posBg).setHorizontalAlignment('center');
     sh.getRange(r, 5).setValue(mm.name).setBackground(cellBg).setHorizontalAlignment('center');
-    const amt = sh.getRange(r, 6).setValue(yen_(bal)).setBackground(cellBg).setHorizontalAlignment('right').setFontWeight('bold');
+    const amt = sh.getRange(r, 6).setValue(yen_(bal)).setBackground(cellBg).setHorizontalAlignment('right');
     if (bal < 0) amt.setFontColor(negColor);
     r++;
   });
@@ -859,6 +866,7 @@ function writeRankBlock_(sh, startRow, arr, klass, negColor) {
 }
 
 // 月間出席ランキングのティア行を書き込む。最上段は青ヘッダー、以降は淡青。
+// 名前が長い段は折り返さず複数行に分割し、順位ラベルは縦結合する（行の間延び防止）。
 function writeAttBlock_(sh, startRow, tiers) {
   const headBg = '#7fb8e6', posBg = '#d3e7f7', whoBg = '#eaf3fb';
   let r = startRow;
@@ -870,14 +878,31 @@ function writeAttBlock_(sh, startRow, tiers) {
     tiers.forEach(function (t, i) {
       const lblBg = (i === 0) ? headBg : posBg;
       const nmBg = (i === 0) ? headBg : whoBg;
-      sh.getRange(r, 4).setValue(t.label).setBackground(lblBg).setFontWeight(i === 0 ? 'bold' : 'normal').setHorizontalAlignment('center');
-      sh.getRange(r, 5, 1, 2).merge().setValue(t.names).setBackground(nmBg)
-        .setFontWeight(i === 0 ? 'bold' : 'normal').setHorizontalAlignment('center').setWrap(true);
-      r++;
+      const lines = wrapNames_(t.list, 16); // 幅に収まる文字数で改行（折り返さず実際の行に分割）
+      const k = lines.length;
+      const lbl = (k > 1) ? sh.getRange(r, 4, k, 1).merge() : sh.getRange(r, 4);
+      lbl.setValue(t.label).setBackground(lblBg).setHorizontalAlignment('center').setVerticalAlignment('middle');
+      lines.forEach(function (line, j) {
+        sh.getRange(r + j, 5, 1, 2).merge().setValue(line).setBackground(nmBg).setHorizontalAlignment('center');
+      });
+      r += k;
     });
   }
   sh.getRange(startRow, 4, r - startRow, 3).setBorder(true, true, true, true, true, true, '#7fb4e0', SpreadsheetApp.BorderStyle.SOLID);
   return r;
+}
+
+// 氏名配列を、1行あたり最大 maxChars 文字に収まるよう「・」区切りで複数行に分割する。
+function wrapNames_(list, maxChars) {
+  const lines = [];
+  let cur = '';
+  (list || []).forEach(function (n) {
+    const piece = cur ? (cur + '・' + n) : n;
+    if (cur && piece.length > maxChars) { lines.push(cur); cur = n; }
+    else { cur = piece; }
+  });
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [''];
 }
 
 // 一時シートを A4縦・幅フィットでPDFエクスポートし、Blobを返す。
@@ -906,7 +931,7 @@ function attendanceTiers_(att) {
   counts.sort(function (a, b) { return b - a; });
   return counts.slice(0, 4).map(function (c, i) {
     const label = (i === 0) ? ((totalDays > 0 && c === totalDays) ? '全出席' : '第1位') : ('第' + (i + 1) + '位');
-    return { label: label, names: names[c].join('・') };
+    return { label: label, list: names[c] };
   });
 }
 
