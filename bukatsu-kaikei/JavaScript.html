@@ -6,8 +6,10 @@ var state = {
   members: [],
   pools: [],
   day: null,          // 練習日画面の現在データ
+  eventDetail: null,  // イベントモーダルの現在データ
   editingMemberId: null,
-  editingPoolName: null
+  editingPoolName: null,
+  editingEventId: null
 };
 
 // ===== ユーティリティ =====
@@ -63,6 +65,17 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('chargeDate').value = isoToday();
   document.getElementById('chargeAddBtn').addEventListener('click', addCharge);
 
+  // イベント
+  document.getElementById('addEventBtn').addEventListener('click', function () { openEventModal(null); });
+  bindEventModal();
+
+  // 外部参加
+  document.getElementById('extDate').value = isoToday();
+  document.getElementById('extAddBtn').addEventListener('click', addExternal);
+
+  // 残高PDF
+  document.getElementById('pdfBtn').addEventListener('click', generatePdf);
+
   // マスタ
   document.getElementById('addMemberBtn').addEventListener('click', function () { openMemberModal(null); });
   document.getElementById('addPoolBtn').addEventListener('click', function () { openPoolModal(null); });
@@ -96,18 +109,22 @@ function loadMasters() {
   });
 }
 
-// ===== 月次データ（残高・チャージ・出席ランキング） =====
+// ===== 月次データ（残高・チャージ・イベント・外部参加・出席ランキング） =====
 function refreshMonth() {
   loading(true);
   document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
   return Promise.all([
     call('getBalanceRanking'),
     call('getCharges', [state.year, state.month]),
-    call('getAttendanceRanking', [state.year, state.month])
+    call('getAttendanceRanking', [state.year, state.month]),
+    call('getEvents', [state.year, state.month]),
+    call('getExternals', [state.year, state.month])
   ]).then(function (res) {
     renderBalances(res[0]);
     renderCharges(res[1]);
     renderAttendRanking(res[2]);
+    renderEvents(res[3]);
+    renderExternals(res[4]);
     loading(false);
   }).catch(function (err) {
     loading(false);
@@ -379,11 +396,22 @@ function renderPoolTable() {
   }).join('') || '<tr><td colspan="3">プールが登録されていません</td></tr>';
 }
 function fillPoolSelect() {
+  var opts = state.pools.map(function (p) {
+    return '<option value="' + esc(p.name) + '">' + esc(p.name) + '（' + yen(p.price) + '）</option>';
+  }).join('');
+
   var sel = document.getElementById('practicePool');
   var current = sel.value;
-  sel.innerHTML = '<option value="">（未設定）</option>' +
-    state.pools.map(function (p) { return '<option value="' + esc(p.name) + '">' + esc(p.name) + '（' + yen(p.price) + '）</option>'; }).join('');
+  sel.innerHTML = '<option value="">（未設定）</option>' + opts;
   sel.value = current;
+
+  // 外部参加のプール選択も同じ内容で埋める
+  var ext = document.getElementById('extPool');
+  if (ext) {
+    var extCur = ext.value;
+    ext.innerHTML = '<option value="">プールを選択</option>' + opts;
+    ext.value = extCur;
+  }
 }
 function openPoolModal(name) {
   state.editingPoolName = name;
@@ -420,6 +448,214 @@ function bindPoolModal() {
       document.getElementById('poolModal').classList.remove('show');
       return loadMasters();
     }).then(function () { loading(false); loadDay(); });
+  });
+}
+
+// ===== イベント会計 =====
+function renderEvents(events) {
+  var box = document.getElementById('eventList');
+  box.innerHTML = events.map(function (e) {
+    var badge = e.settled
+      ? '<span class="badge done">精算済</span>'
+      : '<span class="badge todo">未精算</span>';
+    return '<div class="event-card" onclick="openEventModal(\'' + e.id + '\')">' +
+      '<div class="ev-main">' +
+        '<div class="ev-name">' + esc(e.name) + '</div>' +
+        '<div class="ev-meta">' + e.date + '　1人 ' + yen(e.amount) + '　参加' + e.participants + '名' +
+          (e.purpose ? '　/ ' + esc(e.purpose) : '') + '</div>' +
+      '</div>' + badge + '</div>';
+  }).join('') || '<p class="hint">まだイベントがありません。「＋ イベントを作成」から追加してください。</p>';
+}
+
+function openEventModal(id) {
+  state.editingEventId = id;
+  loading(true);
+  var p = id ? call('getEventDetail', [id]) : Promise.resolve(null);
+  p.then(function (d) {
+    loading(false);
+    // 新規のときは全部員デフォルト参加
+    if (!d) {
+      d = {
+        id: null, date: isoToday(), name: '', purpose: '', amount: '', settled: false,
+        members: state.members.map(function (m) {
+          return { id: m.id, name: m.name, grade: m.grade, participating: true };
+        })
+      };
+    }
+    state.eventDetail = d;
+    document.getElementById('eventModalTitle').textContent = d.id ? 'イベントを編集' : 'イベントを作成';
+    document.getElementById('evName').value = d.name;
+    document.getElementById('evDate').value = d.date;
+    document.getElementById('evPurpose').value = d.purpose;
+    document.getElementById('evAmount').value = d.amount;
+    renderEventMembers(d);
+
+    var settled = d.settled;
+    document.getElementById('evSettledNote').style.display = settled ? '' : 'none';
+    ['evName', 'evDate', 'evPurpose', 'evAmount'].forEach(function (fid) {
+      document.getElementById(fid).disabled = settled;
+    });
+    document.getElementById('evAllBtn').style.display = settled ? 'none' : '';
+    document.getElementById('evSaveBtn').style.display = settled ? 'none' : '';
+    document.getElementById('evSettleBtn').style.display = settled ? 'none' : '';
+    document.getElementById('evUnsettleBtn').style.display = settled ? '' : 'none';
+    document.getElementById('evDeleteBtn').style.display = (d.id && !settled) ? '' : 'none';
+
+    document.getElementById('eventModal').classList.add('show');
+  }).catch(function (err) { loading(false); alert('読み込みエラー: ' + err.message); });
+}
+
+function renderEventMembers(d) {
+  var list = document.getElementById('evMemberList');
+  list.innerHTML = d.members.map(function (m) {
+    return '<div class="attend-item' + (m.participating ? ' present' : '') + '" data-id="' + m.id + '">' +
+      '<span>' + esc(m.name) + ' <span class="sub">' + esc(m.grade) + '</span></span>' +
+      '<span class="check">✓</span></div>';
+  }).join('') || '<p class="hint">部員が登録されていません。</p>';
+  if (!d.settled) {
+    list.querySelectorAll('.attend-item').forEach(function (el) {
+      el.addEventListener('click', function () { el.classList.toggle('present'); });
+    });
+  }
+}
+
+function collectEventForm() {
+  var ids = [];
+  document.querySelectorAll('#evMemberList .attend-item.present').forEach(function (el) { ids.push(el.dataset.id); });
+  return {
+    ev: {
+      id: state.editingEventId,
+      name: document.getElementById('evName').value.trim(),
+      date: document.getElementById('evDate').value,
+      purpose: document.getElementById('evPurpose').value.trim(),
+      amount: parseFloat(document.getElementById('evAmount').value)
+    },
+    participantIds: ids
+  };
+}
+
+// イベントを保存（settleAfter=true なら続けて精算）
+function saveEventFlow(settleAfter) {
+  var f = collectEventForm();
+  if (!f.ev.name) { alert('イベント名を入力してください'); return; }
+  if (!f.ev.date) { alert('日付を入力してください'); return; }
+  if (settleAfter && (!f.ev.amount || f.ev.amount <= 0)) { alert('1人あたり金額を入力してください'); return; }
+  if (settleAfter && f.participantIds.length === 0) { alert('参加者を選んでください'); return; }
+  if (settleAfter && !confirm('参加者 ' + f.participantIds.length + '名の残高から、1人 ' + yen(f.ev.amount) + ' を差し引きます。よろしいですか？')) return;
+
+  loading(true);
+  call('saveEvent', [f.ev]).then(function (res) {
+    if (!res.ok) { throw new Error(res.msg); }
+    state.editingEventId = res.id;
+    return call('saveEventParticipants', [res.id, f.participantIds]).then(function (r2) {
+      if (!r2.ok) { throw new Error(r2.msg); }
+      if (!settleAfter) return { ok: true };
+      return call('settleEvent', [res.id]);
+    });
+  }).then(function (res) {
+    loading(false);
+    if (res && res.ok === false) { alert(res.msg); return; }
+    document.getElementById('eventModal').classList.remove('show');
+    if (settleAfter && res && res.count != null) alert('精算しました（' + res.count + '名 × ' + yen(res.amount) + '）');
+    refreshMonth();
+  }).catch(function (err) { loading(false); alert('エラー: ' + err.message); });
+}
+
+function bindEventModal() {
+  document.getElementById('evCancelBtn').addEventListener('click', function () {
+    document.getElementById('eventModal').classList.remove('show');
+  });
+  document.getElementById('evAllBtn').addEventListener('click', function () {
+    document.querySelectorAll('#evMemberList .attend-item').forEach(function (el) { el.classList.add('present'); });
+  });
+  document.getElementById('evSaveBtn').addEventListener('click', function () { saveEventFlow(false); });
+  document.getElementById('evSettleBtn').addEventListener('click', function () { saveEventFlow(true); });
+  document.getElementById('evUnsettleBtn').addEventListener('click', function () {
+    if (!confirm('このイベントの精算を取り消します。参加者から引いた分を戻します。よろしいですか？')) return;
+    loading(true);
+    call('unsettleEvent', [state.editingEventId]).then(function () {
+      document.getElementById('eventModal').classList.remove('show');
+      loading(false);
+      refreshMonth();
+    });
+  });
+  document.getElementById('evDeleteBtn').addEventListener('click', function () {
+    if (!confirm('このイベントを削除しますか？')) return;
+    loading(true);
+    call('deleteEvent', [state.editingEventId]).then(function (res) {
+      loading(false);
+      if (res && res.ok === false) { alert(res.msg); return; }
+      document.getElementById('eventModal').classList.remove('show');
+      refreshMonth();
+    });
+  });
+}
+
+// ===== 外部参加（他大学の立替台帳） =====
+function renderExternals(data) {
+  document.getElementById('extUnpaid').textContent = '未回収の立替: ' + yen(data.unpaidTotal);
+  var body = document.getElementById('extTableBody');
+  body.innerHTML = data.list.map(function (x) {
+    var paid = x.status === '回収済';
+    var toggle = '<button class="pill-btn ' + (paid ? 'done' : 'todo') + '" onclick="toggleExt(\'' + x.id + '\')">' +
+      (paid ? '回収済' : '未回収') + '</button>';
+    return '<tr>' +
+      '<td>' + x.date + '</td>' +
+      '<td>' + esc(x.name) + (x.org ? '<br><span class="sub">' + esc(x.org) + '</span>' : '') + '</td>' +
+      '<td>' + esc(x.pool) + '</td>' +
+      '<td class="num">' + yen(x.amount) + '</td>' +
+      '<td>' + esc(x.method) + '</td>' +
+      '<td>' + toggle + '</td>' +
+      '<td><button class="del-btn" onclick="deleteExt(\'' + x.id + '\')">削除</button></td>' +
+      '</tr>';
+  }).join('') || '<tr><td colspan="7">今月の記録はありません</td></tr>';
+}
+
+function addExternal() {
+  var rec = {
+    date: document.getElementById('extDate').value,
+    name: document.getElementById('extName').value.trim(),
+    org: document.getElementById('extOrg').value.trim(),
+    pool: document.getElementById('extPool').value,
+    amount: parseFloat(document.getElementById('extAmount').value),
+    method: document.getElementById('extMethod').value,
+    memo: document.getElementById('extMemo').value.trim()
+  };
+  if (!rec.date) { alert('日付を入力してください'); return; }
+  if (!rec.name) { alert('氏名を入力してください'); return; }
+  if (!rec.amount || rec.amount <= 0) { alert('金額を入力してください'); return; }
+  loading(true);
+  call('addExternal', [rec]).then(function () {
+    document.getElementById('extName').value = '';
+    document.getElementById('extOrg').value = '';
+    document.getElementById('extAmount').value = '';
+    document.getElementById('extMemo').value = '';
+    loading(false);
+    refreshMonth();
+  });
+}
+
+function toggleExt(id) {
+  loading(true);
+  call('toggleExternalPaid', [id]).then(function () { loading(false); refreshMonth(); });
+}
+function deleteExt(id) {
+  if (!confirm('この記録を削除しますか？')) return;
+  loading(true);
+  call('deleteExternal', [id]).then(function () { loading(false); refreshMonth(); });
+}
+
+// ===== 残高PDF発行 =====
+function generatePdf() {
+  loading(true);
+  call('generateBalancePdf').then(function (res) {
+    loading(false);
+    if (!res || !res.ok) { alert('PDFの発行に失敗しました'); return; }
+    // 新しいタブでDrive上のPDFを開く（スマホはDriveアプリ/ブラウザで表示）
+    window.open(res.url, '_blank');
+  }).catch(function (err) {
+    loading(false);
+    alert('PDF発行エラー: ' + err.message + '\n（初回はDriveへのアクセス許可が必要です。エディタで init を一度実行して許可してください）');
   });
 }
 </script>

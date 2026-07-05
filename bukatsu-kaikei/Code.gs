@@ -27,6 +27,9 @@ const SHEET_SCHEDULE = '練習日程';
 const SHEET_ATTEND   = '出席記録';
 const SHEET_CHARGE   = '入金記録';
 const SHEET_PAYMENT  = '支払い履歴';
+const SHEET_EXTERNAL = '外部参加記録';
+const SHEET_EVENT    = 'イベント';
+const SHEET_EVENT_ATTEND = 'イベント参加';
 
 // 各シートのヘッダー（列順そのまま）
 const HEADERS = {};
@@ -35,7 +38,11 @@ HEADERS[SHEET_POOLS]    = ['プール名', '料金', 'マネも徴収'];
 HEADERS[SHEET_SCHEDULE] = ['日付', '使用プール', '精算済'];
 HEADERS[SHEET_ATTEND]   = ['ID', '日付', '部員ID', '出席'];
 HEADERS[SHEET_CHARGE]   = ['ID', '日付', '部員ID', '金額', 'メモ'];
-HEADERS[SHEET_PAYMENT]  = ['ID', '日付', '部員ID', 'プール名', '金額'];
+// 「元」= この支払いの出所（'practice:日付' / 'event:イベントID'）。精算取り消しを厳密に紐づけるため。
+HEADERS[SHEET_PAYMENT]  = ['ID', '日付', '部員ID', 'プール名', '金額', '元'];
+HEADERS[SHEET_EXTERNAL] = ['ID', '日付', '氏名', '所属', '使用プール', '金額', '決済手段', '状態', 'メモ'];
+HEADERS[SHEET_EVENT]    = ['ID', '日付', 'イベント名', '用途', '金額', '精算済'];
+HEADERS[SHEET_EVENT_ATTEND] = ['ID', 'イベントID', '部員ID'];
 
 // 初回のみ投入するサンプルのプール（後から画面で編集可能）
 // [プール名, 料金, マネも徴収するか]
@@ -82,6 +89,11 @@ function setupSheets_() {
   const pools = ss.getSheetByName(SHEET_POOLS);
   if (pools && String(pools.getRange(1, 3).getValue()) !== 'マネも徴収') {
     pools.getRange(1, 3).setValue('マネも徴収').setFontWeight('bold');
+  }
+  // 支払い履歴に「元」列（F列）を後付けする。既存行は空欄＝旧・練習精算として扱う。
+  const pay = ss.getSheetByName(SHEET_PAYMENT);
+  if (pay && String(pay.getRange(1, 6).getValue()) !== '元') {
+    pay.getRange(1, 6).setValue('元').setFontWeight('bold');
   }
 
   // デフォルトの空シートが残っていれば削除
@@ -374,8 +386,9 @@ function settleDay(date) {
   }
 
   const pay = sheet_(SHEET_PAYMENT);
-  const rows = chargeIds.map(function (id) { return [Utilities.getUuid(), iso, id, sched.pool, price]; });
-  pay.getRange(pay.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+  const src = 'practice:' + iso;
+  const rows = chargeIds.map(function (id) { return [Utilities.getUuid(), iso, id, sched.pool, price, src]; });
+  pay.getRange(pay.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 
   // 精算済フラグを立てる
   sheet_(SHEET_SCHEDULE).getRange(sched.rowIndex, 3).setValue(true);
@@ -383,18 +396,27 @@ function settleDay(date) {
   return { ok: true, count: rows.length, skipped: skipped, price: price, pool: sched.pool };
 }
 
-// 精算の取り消し（その日の支払い履歴を削除し、精算済フラグを下ろす）
+// 支払い履歴から、指定した「元（出所）」の行を削除する。
+// legacyDate を渡すと、元が空欄の旧データはその日付一致で削除する（後方互換）。
+function deletePaymentsBySource_(src, legacyDate) {
+  const sh = sheet_(SHEET_PAYMENT);
+  const last = sh.getLastRow();
+  if (last < 2) return;
+  const vals = sh.getRange(2, 1, last - 1, 6).getValues(); // A..F
+  for (let i = vals.length - 1; i >= 0; i--) {
+    const rowSrc = String(vals[i][5] || '');
+    const match = rowSrc
+      ? (rowSrc === src)
+      : (legacyDate && toIso_(vals[i][1]) === legacyDate); // 旧データ（元が空欄）
+    if (match) sh.deleteRow(i + 2);
+  }
+}
+
+// 精算の取り消し（その日の練習精算だけを削除し、精算済フラグを下ろす）
 function unsettleDay(date) {
   setupSheets_();
   const iso = toIso_(date);
-  const sh = sheet_(SHEET_PAYMENT);
-  const last = sh.getLastRow();
-  if (last >= 2) {
-    const dates = sh.getRange(2, 2, last - 1, 1).getValues();
-    for (let i = dates.length - 1; i >= 0; i--) {
-      if (toIso_(dates[i][0]) === iso) sh.deleteRow(i + 2);
-    }
-  }
+  deletePaymentsBySource_('practice:' + iso, iso);
   const sched = scheduleRow_(iso);
   if (sched) sheet_(SHEET_SCHEDULE).getRange(sched.rowIndex, 3).setValue(false);
   return { ok: true };
@@ -493,6 +515,281 @@ function getAttendanceRanking(year, month) {
       return { id: m.id, name: m.name, count: count[m.id] || 0 };
     }).sort(function (a, b) { return b.count - a.count; })
   };
+}
+
+// ===== 外部参加記録（他大学選手などの立替台帳） =====
+// プリペイド残高とは独立した記録。誰にいくら立て替え、回収済みかを管理する。
+function getExternals(year, month) {
+  setupSheets_();
+  const list = rows_(SHEET_EXTERNAL).map(function (r) {
+    return {
+      id: String(r[0]),
+      date: toIso_(r[1]),
+      name: String(r[2]),
+      org: String(r[3]),
+      pool: String(r[4]),
+      amount: Number(r[5]) || 0,
+      method: String(r[6] || ''),
+      status: String(r[7] || '未回収'),
+      memo: String(r[8] || '')
+    };
+  }).filter(function (x) { return inMonth_(x.date, year, month); })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); });
+
+  let unpaid = 0, total = 0;
+  list.forEach(function (x) { total += x.amount; if (x.status !== '回収済') unpaid += x.amount; });
+  return { list: list, unpaidTotal: unpaid, total: total };
+}
+
+function addExternal(rec) {
+  setupSheets_();
+  sheet_(SHEET_EXTERNAL).appendRow([
+    Utilities.getUuid(),
+    toIso_(rec.date),
+    rec.name || '',
+    rec.org || '',
+    rec.pool || '',
+    Number(rec.amount) || 0,
+    rec.method || '現金',
+    rec.status || '未回収',
+    rec.memo || ''
+  ]);
+  return { ok: true };
+}
+
+// 回収状況（未回収 ⇄ 回収済）を切り替える
+function toggleExternalPaid(id) {
+  const rowIndex = findRow_(SHEET_EXTERNAL, 1, id);
+  if (rowIndex > 0) {
+    const cell = sheet_(SHEET_EXTERNAL).getRange(rowIndex, 8);
+    cell.setValue(String(cell.getValue()) === '回収済' ? '未回収' : '回収済');
+  }
+  return { ok: true };
+}
+
+function deleteExternal(id) {
+  const rowIndex = findRow_(SHEET_EXTERNAL, 1, id);
+  if (rowIndex > 0) sheet_(SHEET_EXTERNAL).deleteRow(rowIndex);
+  return { ok: true };
+}
+
+// ===== イベント会計（新歓コンパ・追いコン等） =====
+// 徴収はプリペイド残高から差し引く（支払い履歴に 元='event:ID' で記録）。
+function getEvents(year, month) {
+  setupSheets_();
+  // 参加人数をイベントIDごとに集計
+  const partCount = {};
+  rows_(SHEET_EVENT_ATTEND).forEach(function (r) {
+    const eid = String(r[1]);
+    partCount[eid] = (partCount[eid] || 0) + 1;
+  });
+  return rows_(SHEET_EVENT).map(function (r) {
+    const id = String(r[0]);
+    return {
+      id: id,
+      date: toIso_(r[1]),
+      name: String(r[2]),
+      purpose: String(r[3] || ''),
+      amount: Number(r[4]) || 0,
+      settled: r[5] === true || r[5] === 'TRUE',
+      participants: partCount[id] || 0
+    };
+  }).filter(function (e) { return inMonth_(e.date, year, month); })
+    .sort(function (a, b) { return b.date.localeCompare(a.date); });
+}
+
+function eventRow_(id) {
+  const rowIndex = findRow_(SHEET_EVENT, 1, id);
+  if (rowIndex < 0) return null;
+  const v = sheet_(SHEET_EVENT).getRange(rowIndex, 1, 1, 6).getValues()[0];
+  return {
+    rowIndex: rowIndex, id: String(v[0]), date: toIso_(v[1]), name: String(v[2]),
+    purpose: String(v[3] || ''), amount: Number(v[4]) || 0,
+    settled: v[5] === true || v[5] === 'TRUE'
+  };
+}
+
+// イベントの新規作成／更新（精算済みは編集不可）
+function saveEvent(ev) {
+  setupSheets_();
+  const sh = sheet_(SHEET_EVENT);
+  if (ev.id) {
+    const cur = eventRow_(ev.id);
+    if (cur && cur.settled) return { ok: false, msg: 'このイベントは精算済みです。編集するには先に精算を取り消してください。' };
+    if (cur) {
+      sh.getRange(cur.rowIndex, 1, 1, 6).setValues([[
+        cur.id, toIso_(ev.date), ev.name || '', ev.purpose || '', Number(ev.amount) || 0, false
+      ]]);
+      return { ok: true, id: cur.id };
+    }
+  }
+  const id = Utilities.getUuid();
+  sh.appendRow([id, toIso_(ev.date), ev.name || '', ev.purpose || '', Number(ev.amount) || 0, false]);
+  return { ok: true, id: id };
+}
+
+function deleteEvent(id) {
+  setupSheets_();
+  const cur = eventRow_(id);
+  if (cur && cur.settled) return { ok: false, msg: '精算済みのイベントは削除できません。先に精算を取り消してください。' };
+  const rowIndex = findRow_(SHEET_EVENT, 1, id);
+  if (rowIndex > 0) sheet_(SHEET_EVENT).deleteRow(rowIndex);
+  // 参加記録も掃除
+  deleteEventParticipants_(id);
+  return { ok: true };
+}
+
+function deleteEventParticipants_(eventId) {
+  const sh = sheet_(SHEET_EVENT_ATTEND);
+  const last = sh.getLastRow();
+  if (last < 2) return;
+  const vals = sh.getRange(2, 2, last - 1, 1).getValues();
+  for (let i = vals.length - 1; i >= 0; i--) {
+    if (String(vals[i][0]) === String(eventId)) sh.deleteRow(i + 2);
+  }
+}
+
+// イベント詳細＋全部員の参加フラグ（新規時はデフォルト全員参加）
+function getEventDetail(id) {
+  setupSheets_();
+  const ev = eventRow_(id);
+  if (!ev) return null;
+  const partSet = {};
+  rows_(SHEET_EVENT_ATTEND).forEach(function (r) {
+    if (String(r[1]) === String(id)) partSet[String(r[2])] = true;
+  });
+  const members = getMembers().map(function (m) {
+    return { id: m.id, name: m.name, grade: m.grade, participating: !!partSet[m.id] };
+  });
+  return {
+    id: ev.id, date: ev.date, name: ev.name, purpose: ev.purpose,
+    amount: ev.amount, settled: ev.settled, members: members
+  };
+}
+
+// 参加者を上書き保存（原則全員だが当欠者を外せる）
+function saveEventParticipants(eventId, memberIds) {
+  setupSheets_();
+  const cur = eventRow_(eventId);
+  if (cur && cur.settled) return { ok: false, msg: 'このイベントは精算済みです。変更するには先に精算を取り消してください。' };
+  deleteEventParticipants_(eventId);
+  const ids = memberIds || [];
+  if (ids.length) {
+    const sh = sheet_(SHEET_EVENT_ATTEND);
+    const rows = ids.map(function (mid) { return [Utilities.getUuid(), eventId, mid]; });
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 3).setValues(rows);
+  }
+  return { ok: true, count: ids.length };
+}
+
+// イベント精算：参加者のプリペイド残高から一律 金額 を差し引く
+function settleEvent(id) {
+  setupSheets_();
+  const ev = eventRow_(id);
+  if (!ev) return { ok: false, msg: 'イベントが見つかりません。' };
+  if (ev.settled) return { ok: false, msg: 'このイベントは既に精算済みです。' };
+  if (!ev.amount || ev.amount <= 0) return { ok: false, msg: '1人あたり金額が設定されていません。' };
+
+  const ids = [];
+  rows_(SHEET_EVENT_ATTEND).forEach(function (r) {
+    if (String(r[1]) === String(id)) ids.push(String(r[2]));
+  });
+  if (ids.length === 0) return { ok: false, msg: '参加者が選択されていません。' };
+
+  const pay = sheet_(SHEET_PAYMENT);
+  const src = 'event:' + id;
+  const label = 'イベント:' + ev.name;
+  const rows = ids.map(function (mid) { return [Utilities.getUuid(), ev.date, mid, label, ev.amount, src]; });
+  pay.getRange(pay.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+
+  sheet_(SHEET_EVENT).getRange(ev.rowIndex, 6).setValue(true);
+  return { ok: true, count: rows.length, amount: ev.amount };
+}
+
+function unsettleEvent(id) {
+  setupSheets_();
+  deletePaymentsBySource_('event:' + id, null);
+  const ev = eventRow_(id);
+  if (ev) sheet_(SHEET_EVENT).getRange(ev.rowIndex, 6).setValue(false);
+  return { ok: true };
+}
+
+// ===== 残高PDFの発行 =====
+// 全部員の残高カードを学年ごとに色分けした1枚のPDFを生成し、Driveに保存してURLを返す。
+function generateBalancePdf() {
+  setupSheets_();
+  const tz = Session.getScriptTimeZone();
+  const today = Utilities.formatDate(new Date(), tz, 'yyyy/MM/dd');
+  const stamp = Utilities.formatDate(new Date(), tz, 'yyyyMMdd-HHmm');
+  const balances = getBalances();
+
+  // 学年ごとの色（登場順にパレットを割り当て）
+  const palette = ['#2563eb', '#16a34a', '#d97706', '#db2777', '#7c3aed', '#0891b2', '#dc2626'];
+  const gradeColor = {};
+  let ci = 0;
+  balances.forEach(function (m) {
+    const g = m.grade || '未設定';
+    if (!(g in gradeColor)) { gradeColor[g] = palette[ci % palette.length]; ci++; }
+  });
+
+  // 学年→氏名（あいうえお順ではなく登録順）でカードを並べる。学年順にソート。
+  const sorted = balances.slice().sort(function (a, b) {
+    return String(a.grade).localeCompare(String(b.grade)) || String(a.name).localeCompare(String(b.name));
+  });
+
+  const cards = sorted.map(function (m) {
+    const color = gradeColor[m.grade || '未設定'];
+    const bal = Math.round(m.balance);
+    const balColor = bal < 0 ? '#dc2626' : '#111827';
+    const warn = bal < 0 ? '<div class="warn">⚠ 残高不足</div>' : '';
+    return '' +
+      '<div class="card" style="border-top:6px solid ' + color + '">' +
+        '<div class="chead">' +
+          '<span class="name">' + escHtml_(m.name) + '</span>' +
+          '<span class="grade" style="background:' + color + '">' + escHtml_(m.grade || '—') + '</span>' +
+        '</div>' +
+        '<div class="dept">' + escHtml_(m.dept || '') + '　' + escHtml_(m.role || '') + '</div>' +
+        '<div class="bal" style="color:' + balColor + '">' + yen_(bal) + '</div>' +
+        '<div class="sub">チャージ計 ' + yen_(m.charged) + '／支払計 ' + yen_(m.paid) + '</div>' +
+        warn +
+      '</div>';
+  }).join('');
+
+  const html = '' +
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    'body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;color:#111827;margin:24px;}' +
+    'h1{font-size:20px;margin:0 0 4px;}' +
+    '.meta{color:#6b7280;font-size:12px;margin-bottom:16px;}' +
+    '.grid{display:flex;flex-wrap:wrap;gap:12px;}' +
+    '.card{width:31%;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;page-break-inside:avoid;}' +
+    '.chead{display:flex;justify-content:space-between;align-items:center;}' +
+    '.name{font-size:15px;font-weight:700;}' +
+    '.grade{color:#fff;font-size:11px;padding:2px 8px;border-radius:999px;}' +
+    '.dept{font-size:11px;color:#6b7280;margin:2px 0 8px;}' +
+    '.bal{font-size:24px;font-weight:800;}' +
+    '.sub{font-size:11px;color:#6b7280;margin-top:4px;}' +
+    '.warn{color:#dc2626;font-size:11px;font-weight:700;margin-top:4px;}' +
+    '</style></head><body>' +
+    '<h1>プリペイド残高状況</h1>' +
+    '<div class="meta">発行日: ' + today + '　／　部員数: ' + balances.length + '名</div>' +
+    '<div class="grid">' + cards + '</div>' +
+    '</body></html>';
+
+  const pdf = Utilities.newBlob(html, 'text/html', '残高状況.html')
+    .getAs('application/pdf').setName('残高状況_' + stamp + '.pdf');
+  const file = DriveApp.createFile(pdf);
+  return { ok: true, url: file.getUrl(), name: file.getName() };
+}
+
+// PDF用ヘルパー（クライアントには送らないサーバー内整形）
+function yen_(n) {
+  n = Math.round(Number(n) || 0);
+  return (n < 0 ? '-' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
+}
+function escHtml_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
 }
 
 /**
