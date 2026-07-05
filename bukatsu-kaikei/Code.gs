@@ -786,22 +786,25 @@ function generateBalancePdf(year, month, notes) {
       const sep = (idx > 0 && j === 0) ? 'border-top:2px dashed #555;' : '';
       balRows +=
         '<tr>' +
-          '<td class="nm" style="background:' + bg + ';' + sep + '">' + escHtml_(mm.name) + '</td>' +
-          '<td class="am" style="background:' + goldBg + ';color:' + col + ';' + sep + '">' + yen_(bal) + '</td>' +
+          pdfCell_('nm', bg, sep, escHtml_(mm.name)) +
+          pdfCell_('am', goldBg, 'color:' + col + ';' + sep, yen_(bal)) +
         '</tr>';
     });
   });
 
-  // 富豪・借金ランキング（上位3／下位3）
+  // 富豪・借金ランキング（上位3／下位3）。文字は濃色にして背景が出なくても読めるようにする。
   const rk = getBalanceRanking();
   function rankRows(arr, klass) {
     return arr.map(function (mm, i) {
       const bal = Math.round(mm.balance);
-      const col = bal < 0 ? negColor : '#111827';
-      return '<tr class="' + klass + ' r' + (i + 1) + '">' +
-        '<td class="pos">第' + (i + 1) + '位</td>' +
-        '<td class="who">' + escHtml_(mm.name) + '</td>' +
-        '<td class="amt" style="color:' + col + '">' + yen_(bal) + '</td>' +
+      const amtCol = bal < 0 ? negColor : '#111827';
+      let posBg, cellBg;
+      if (klass === 'rich') { posBg = (i === 0) ? '#ffe000' : '#ffe94d'; cellBg = '#fbfbc6'; }
+      else                  { posBg = (i === 0) ? '#9aa6b8' : '#b3bccb'; cellBg = '#dde2ea'; }
+      return '<tr>' +
+        pdfCell_('pos', posBg, 'color:#111;font-weight:800;', '第' + (i + 1) + '位') +
+        pdfCell_('who', cellBg, 'color:#111;', escHtml_(mm.name)) +
+        pdfCell_('amt', cellBg, 'color:' + amtCol + ';', yen_(bal)) +
       '</tr>';
     }).join('');
   }
@@ -833,14 +836,8 @@ function generateBalancePdf(year, month, notes) {
   '.rank .pos{text-align:center;width:26%;}' +
   '.rank .who{text-align:center;}' +
   '.rank .amt{text-align:right;font-weight:700;width:34%;}' +
-  '.rich .pos{background:#fff27a;} .rich .who,.rich .amt{background:#fbfbc6;}' +
-  '.rich.r1 .pos{background:#fff000;} ' +
-  '.debt .pos{background:#8c9bb0;color:#fff;} .debt .who,.debt .amt{background:#d3d9e2;}' +
-  '.debt.r1 .pos{background:#6f7f96;} ' +
-  '.att td{padding:5px 10px;font-size:13px;border:1px solid #7fb4e0;}' +
-  '.att .head td{background:#2e8fd6;color:#fff;font-weight:800;text-align:center;}' +
-  '.att .pos{text-align:center;width:26%;background:#d3e7f7;}' +
-  '.att .who{text-align:center;background:#eaf3fb;}' +
+  '.att td{padding:5px 10px;font-size:13px;border:1px solid #7fb4e0;text-align:center;}' +
+  '.att .pos{width:26%;}' +
   '.memo{margin-top:22px;font-size:13px;line-height:1.7;}' +
   '.memo .blk{margin-bottom:14px;}' +
   '.memo .lbl{font-weight:800;}' +
@@ -877,9 +874,10 @@ function generateBalancePdf(year, month, notes) {
 // 最上段は全出席なら「全出席」、そうでなければ「第1位」。以降 第2位/第3位…（最大4段）。
 function attendanceTierRows_(att) {
   const totalDays = att.totalDays || 0;
+  const headBg = '#7fb8e6', posBg = '#d3e7f7', whoBg = '#eaf3fb';
   const withCount = (att.ranking || []).filter(function (r) { return r.count > 0; });
   if (withCount.length === 0) {
-    return '<tr><td class="pos">—</td><td class="who">出席記録がありません</td></tr>';
+    return '<tr>' + pdfCell_('pos', whoBg, '', '—') + pdfCell_('who', whoBg, '', '出席記録がありません') + '</tr>';
   }
   // 出席回数（降順）ごとに氏名をまとめる
   const counts = [];
@@ -895,15 +893,22 @@ function attendanceTierRows_(att) {
     const joined = escHtml_(names[c].join('・'));
     if (i === 0) {
       const label = (totalDays > 0 && c === totalDays) ? '全出席' : '第1位';
-      html += '<tr class="head"><td>' + label + '</td><td>' + joined + '</td></tr>';
+      const hs = 'color:#111;font-weight:800;';
+      html += '<tr>' + pdfCell_('pos', headBg, hs, label) + pdfCell_('who', headBg, hs, joined) + '</tr>';
     } else {
-      html += '<tr><td class="pos">第' + (i + 1) + '位</td><td class="who">' + joined + '</td></tr>';
+      html += '<tr>' + pdfCell_('pos', posBg, 'color:#111;', '第' + (i + 1) + '位') +
+                       pdfCell_('who', whoBg, 'color:#111;', joined) + '</tr>';
     }
   });
   return html;
 }
 
 // PDF用ヘルパー（クライアントには送らないサーバー内整形）
+// GASのHTML→PDF変換は CSS の background を無視するため、旧来の bgcolor 属性と
+// background-color を二重指定して背景色を確実に描画させる。文字は白を使わず濃色にする。
+function pdfCell_(cls, bg, style, content) {
+  return '<td class="' + cls + '" bgcolor="' + bg + '" style="background-color:' + bg + ';' + (style || '') + '">' + content + '</td>';
+}
 function yen_(n) {
   n = Math.round(Number(n) || 0);
   return (n < 0 ? '-' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
