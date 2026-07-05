@@ -1,0 +1,416 @@
+<script>
+/* =========================================================
+   フロントエンドロジック
+   - state にサーバーから取得した全データを保持し、描画は state から行う
+   - 更新系は google.script.run で非同期に呼び、リロードなしで反映する
+   ========================================================= */
+'use strict';
+
+var state = { subjects: [], tasks: [], today: '' };
+var expandedSubjects = {};   // subjectId -> true(開いている科目を再描画後も維持)
+var GAUGE_CIRC = 2 * Math.PI * 52;
+
+// ===== ユーティリティ =====
+
+function $(id) { return document.getElementById(id); }
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// 'yyyy-MM-dd' → 今日からの残り日数(今日=0、過去は負)
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  var d = dateStr.split('-'), t = state.today.split('-');
+  var target = new Date(+d[0], +d[1] - 1, +d[2]);
+  var today = new Date(+t[0], +t[1] - 1, +t[2]);
+  return Math.round((target - today) / 86400000);
+}
+
+function formatDateJa(dateStr) {
+  if (!dateStr) return '';
+  var p = dateStr.split('-');
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  var youbi = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+  return (+p[1]) + '月' + (+p[2]) + '日(' + youbi + ')';
+}
+
+function tasksOf(subjectId) {
+  return state.tasks.filter(function (t) { return t.subjectId === subjectId; });
+}
+
+var toastTimer = null;
+function showToast(message, isError) {
+  var el = $('toast');
+  el.textContent = message;
+  el.className = 'toast' + (isError ? ' error' : '');
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.hidden = true; }, isError ? 4000 : 1800);
+}
+
+// google.script.run の共通ラッパー
+function callServer(fnName, args, onSuccess, onFailure) {
+  var runner = google.script.run
+    .withSuccessHandler(function (result) { if (onSuccess) onSuccess(result); })
+    .withFailureHandler(function (err) {
+      showToast('エラー: ' + (err && err.message ? err.message : err), true);
+      if (onFailure) onFailure(err);
+    });
+  runner[fnName].apply(runner, args || []);
+}
+
+// サーバーが返した最新データを取り込み、全体を再描画
+function applyDataAndRender(data) {
+  state = data;
+  renderAll();
+}
+
+// ===== 描画 =====
+
+function renderAll() {
+  renderHero();
+  renderGauge();
+  renderAlerts();
+  renderSubjects();
+  renderSettingsList();
+}
+
+// --- 1. 次の試験カウンター ---
+function renderHero() {
+  var main = $('hero-main'), sub = $('hero-sub');
+  var upcoming = state.subjects
+    .map(function (s) { return { name: s.name, date: s.examDate, days: daysUntil(s.examDate) }; })
+    .filter(function (s) { return s.date && s.days !== null && s.days >= 0; });
+
+  if (upcoming.length === 0) {
+    main.innerHTML = state.subjects.length === 0
+      ? '科目を登録して始めましょう'
+      : '予定されている試験はありません';
+    sub.textContent = '「科目の管理」から試験日を設定できます';
+    return;
+  }
+  upcoming.sort(function (a, b) { return a.days - b.days; });
+  var nearest = upcoming[0].days;
+  var names = upcoming
+    .filter(function (s) { return s.days === nearest; })
+    .map(function (s) { return escapeHtml(s.name); })
+    .join('・');
+  var counter = nearest === 0
+    ? '<span class="days">今日!</span>'
+    : 'あと<span class="days">' + nearest + '</span>日';
+  main.innerHTML = names + ' ' + counter;
+  sub.textContent = formatDateJa(upcoming[0].date);
+}
+
+// --- 2. 全体進捗ゲージ ---
+function renderGauge() {
+  var total = state.tasks.length;
+  var avg = 0, done = 0;
+  if (total > 0) {
+    var sum = 0;
+    state.tasks.forEach(function (t) {
+      sum += t.progress;
+      if (t.progress >= 100) done++;
+    });
+    avg = Math.round(sum / total);
+  }
+  $('gauge-num').textContent = avg;
+  $('gauge-circle').style.strokeDashoffset = GAUGE_CIRC * (1 - avg / 100);
+  $('gauge-detail').textContent = total === 0
+    ? 'タスクを追加すると進捗が表示されます'
+    : '全 ' + total + ' タスク中 ' + done + ' 件完了';
+}
+
+// --- 5. 期限アラート(期限切れ or 3日以内、未完了のみ) ---
+function renderAlerts() {
+  var panel = $('alert-panel'), list = $('alert-list');
+  var subjectName = {};
+  state.subjects.forEach(function (s) { subjectName[s.subjectId] = s.name; });
+
+  var alerts = state.tasks
+    .map(function (t) { return { t: t, days: daysUntil(t.dueDate) }; })
+    .filter(function (a) { return a.t.dueDate && a.t.progress < 100 && a.days !== null && a.days <= 3; })
+    .sort(function (a, b) { return a.days - b.days; });
+
+  if (alerts.length === 0) { panel.hidden = true; return; }
+  panel.hidden = false;
+  list.innerHTML = alerts.map(function (a) {
+    var overdue = a.days < 0;
+    var when = overdue ? '期限切れ' : (a.days === 0 ? '今日まで' : 'あと' + a.days + '日');
+    var label = escapeHtml(subjectName[a.t.subjectId] || '?') + ':' + escapeHtml(a.t.name);
+    return '<li class="' + (overdue ? 'overdue' : '') + '">'
+      + '<span>' + label + '</span>'
+      + '<span class="alert-when">' + when + '</span></li>';
+  }).join('');
+}
+
+// --- 3+4. 科目カードとタスク一覧 ---
+function examBadgeHtml(subject) {
+  if (!subject.examDate) return '';
+  var days = daysUntil(subject.examDate);
+  if (days < 0) {
+    return '<span class="exam-badge done">試験終了 ' + formatDateJa(subject.examDate) + '</span>';
+  }
+  var cls = days <= 7 ? ' soon' : '';
+  var counter = days === 0 ? '今日!' : 'あと' + days + '日';
+  return '<span class="exam-badge' + cls + '">' + formatDateJa(subject.examDate) + '・' + counter + '</span>';
+}
+
+function taskRowHtml(task) {
+  var days = daysUntil(task.dueDate);
+  var dueCls = '', dueText = '期限なし';
+  if (task.dueDate) {
+    if (days < 0) { dueCls = 'overdue'; dueText = formatDateJa(task.dueDate) + '(期限切れ)'; }
+    else if (days <= 3 && task.progress < 100) { dueCls = 'soon'; dueText = formatDateJa(task.dueDate) + '(あと' + days + '日)'; }
+    else { dueText = formatDateJa(task.dueDate); }
+  }
+  return '' +
+    '<div class="task-row" data-task="' + task.taskId + '">' +
+      '<div class="task-top">' +
+        '<span class="task-name">' + (task.progress >= 100 ? '✅ ' : '') + escapeHtml(task.name) + '</span>' +
+        '<span class="task-progress-num" id="tp-num-' + task.taskId + '">' + task.progress + '%</span>' +
+        '<button type="button" class="btn-task-del" data-action="delete-task" data-task="' + task.taskId + '" aria-label="タスクを削除">🗑</button>' +
+      '</div>' +
+      '<input type="range" class="task-slider" min="0" max="100" step="5" value="' + task.progress + '" data-task="' + task.taskId + '" aria-label="進捗率">' +
+      '<div class="task-meta">' +
+        '<span class="task-due-label ' + dueCls + '">📅 ' + dueText + '</span>' +
+        '<input type="date" value="' + escapeHtml(task.dueDate) + '" data-action="due-date" data-task="' + task.taskId + '" aria-label="期限日">' +
+      '</div>' +
+      '<textarea class="task-memo" rows="1" placeholder="メモ(例:間違えた問題番号など)" data-action="memo" data-task="' + task.taskId + '">' + escapeHtml(task.memo) + '</textarea>' +
+    '</div>';
+}
+
+function subjectCardHtml(subject) {
+  var tasks = tasksOf(subject.subjectId);
+  var done = tasks.filter(function (t) { return t.progress >= 100; }).length;
+  var avg = 0;
+  if (tasks.length > 0) {
+    avg = Math.round(tasks.reduce(function (a, t) { return a + t.progress; }, 0) / tasks.length);
+  }
+  var isOpen = !!expandedSubjects[subject.subjectId];
+
+  var tasksHtml = tasks.length === 0
+    ? '<p class="task-empty">タスクがありません。下のフォームから最初のタスクを追加しましょう。</p>'
+    : tasks.map(taskRowHtml).join('');
+
+  return '' +
+    '<div class="subject-card' + (isOpen ? ' open' : '') + '" data-subject="' + subject.subjectId + '">' +
+      '<button type="button" class="subject-head" data-action="toggle" data-subject="' + subject.subjectId + '">' +
+        '<div class="subject-head-top">' +
+          '<span class="subject-name">' + escapeHtml(subject.name) + '</span>' +
+          examBadgeHtml(subject) +
+          '<span class="chevron">▼</span>' +
+        '</div>' +
+        '<div class="subject-progress-row">' +
+          '<div class="progress-bar"><div class="progress-fill" id="sp-fill-' + subject.subjectId + '" style="width:' + avg + '%"></div></div>' +
+          '<span class="subject-stats" id="sp-stats-' + subject.subjectId + '">' + avg + '%・' + tasks.length + '件中' + done + '件完了</span>' +
+        '</div>' +
+      '</button>' +
+      '<div class="subject-body">' +
+        tasksHtml +
+        '<form class="task-add-form" data-subject="' + subject.subjectId + '">' +
+          '<input type="text" name="taskName" placeholder="新しいタスク名(例:青チャート第3章)" maxlength="60" required>' +
+          '<input type="date" name="taskDue" aria-label="期限日(任意)">' +
+          '<button type="submit" class="btn btn-primary">＋ 追加</button>' +
+        '</form>' +
+      '</div>' +
+    '</div>';
+}
+
+function renderSubjects() {
+  var listEl = $('subject-list'), emptyEl = $('subjects-empty');
+  if (state.subjects.length === 0) {
+    listEl.innerHTML = '';
+    emptyEl.hidden = false;
+    return;
+  }
+  emptyEl.hidden = true;
+  listEl.innerHTML = state.subjects.map(subjectCardHtml).join('');
+}
+
+// スライダー操作後に、全体ゲージ・アラート・カードヘッダーだけを部分更新
+// (タスク一覧を再構築するとスライダー操作が中断されるため)
+function refreshAggregates(subjectId) {
+  renderGauge();
+  renderAlerts();
+  var tasks = tasksOf(subjectId);
+  var done = tasks.filter(function (t) { return t.progress >= 100; }).length;
+  var avg = tasks.length === 0 ? 0
+    : Math.round(tasks.reduce(function (a, t) { return a + t.progress; }, 0) / tasks.length);
+  var fill = $('sp-fill-' + subjectId), stats = $('sp-stats-' + subjectId);
+  if (fill) fill.style.width = avg + '%';
+  if (stats) stats.textContent = avg + '%・' + tasks.length + '件中' + done + '件完了';
+}
+
+// --- 6. 科目管理モーダル ---
+function renderSettingsList() {
+  var list = $('settings-subject-list');
+  if (state.subjects.length === 0) {
+    list.innerHTML = '<li style="border:none;color:var(--ink-soft)">まだ科目がありません。上のフォームから追加してください。</li>';
+    return;
+  }
+  list.innerHTML = state.subjects.map(function (s) {
+    return '<li>' +
+      '<span class="s-name">' + escapeHtml(s.name) + '</span>' +
+      '<input type="date" value="' + escapeHtml(s.examDate) + '" data-action="exam-date" data-subject="' + s.subjectId + '" aria-label="試験日">' +
+      '<button type="button" class="btn btn-danger" data-action="delete-subject" data-subject="' + s.subjectId + '">削除</button>' +
+    '</li>';
+  }).join('');
+}
+
+// ===== イベント =====
+
+function findTask(taskId) {
+  for (var i = 0; i < state.tasks.length; i++) {
+    if (state.tasks[i].taskId === taskId) return state.tasks[i];
+  }
+  return null;
+}
+
+function setupEvents() {
+  var listEl = $('subject-list');
+
+  // クリック系(カード開閉・タスク削除)
+  listEl.addEventListener('click', function (e) {
+    var toggle = e.target.closest('[data-action="toggle"]');
+    if (toggle) {
+      var sid = toggle.getAttribute('data-subject');
+      expandedSubjects[sid] = !expandedSubjects[sid];
+      toggle.closest('.subject-card').classList.toggle('open', expandedSubjects[sid]);
+      return;
+    }
+    var del = e.target.closest('[data-action="delete-task"]');
+    if (del) {
+      var taskId = del.getAttribute('data-task');
+      var task = findTask(taskId);
+      if (!task || !confirm('タスク「' + task.name + '」を削除しますか?')) return;
+      callServer('deleteTask', [taskId], function (data) {
+        applyDataAndRender(data);
+        showToast('タスクを削除しました');
+      });
+    }
+  });
+
+  // スライダー: 操作中はローカル表示のみ更新
+  listEl.addEventListener('input', function (e) {
+    if (!e.target.classList.contains('task-slider')) return;
+    var taskId = e.target.getAttribute('data-task');
+    var value = Number(e.target.value);
+    var num = $('tp-num-' + taskId);
+    if (num) num.textContent = value + '%';
+    var task = findTask(taskId);
+    if (task) {
+      task.progress = value;
+      refreshAggregates(task.subjectId);
+    }
+  });
+
+  // 確定系(スライダー確定・期限日・メモ)
+  listEl.addEventListener('change', function (e) {
+    var el = e.target;
+    var taskId = el.getAttribute('data-task');
+
+    if (el.classList.contains('task-slider')) {
+      callServer('updateTaskProgress', [taskId, Number(el.value)], function () {
+        var task = findTask(taskId);
+        if (task) renderSubjects();   // 完了チェックマーク等を反映
+      });
+      return;
+    }
+    if (el.getAttribute('data-action') === 'due-date') {
+      callServer('updateTaskDueDate', [taskId, el.value], function (data) {
+        applyDataAndRender(data);
+        showToast('期限日を更新しました');
+      });
+      return;
+    }
+    if (el.getAttribute('data-action') === 'memo') {
+      callServer('updateTaskMemo', [taskId, el.value], function () {
+        var task = findTask(taskId);
+        if (task) task.memo = el.value;
+        showToast('メモを保存しました');
+      });
+    }
+  });
+
+  // タスク追加フォーム
+  listEl.addEventListener('submit', function (e) {
+    var form = e.target.closest('.task-add-form');
+    if (!form) return;
+    e.preventDefault();
+    var name = form.taskName.value.trim();
+    if (!name) return;
+    var subjectId = form.getAttribute('data-subject');
+    var btn = form.querySelector('button');
+    btn.disabled = true;
+    callServer('addTask', [subjectId, name, form.taskDue.value], function (data) {
+      applyDataAndRender(data);   // 再描画でフォームごと作り直される
+      showToast('タスクを追加しました');
+    }, function () { btn.disabled = false; });
+  });
+
+  // ---- 科目管理モーダル ----
+  function openSettings() { $('settings-modal').hidden = false; }
+  function closeSettings() { $('settings-modal').hidden = true; }
+  $('btn-open-settings').addEventListener('click', openSettings);
+  $('btn-empty-add-subject').addEventListener('click', openSettings);
+  $('btn-close-settings').addEventListener('click', closeSettings);
+  $('settings-modal').addEventListener('click', function (e) {
+    if (e.target === $('settings-modal')) closeSettings();
+  });
+
+  $('form-add-subject').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = $('new-subject-name').value.trim();
+    if (!name) return;
+    var btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    callServer('addSubject', [name, $('new-subject-exam').value], function (data) {
+      applyDataAndRender(data);
+      $('new-subject-name').value = '';
+      $('new-subject-exam').value = '';
+      btn.disabled = false;
+      showToast('科目を追加しました');
+    }, function () { btn.disabled = false; });
+  });
+
+  $('settings-subject-list').addEventListener('change', function (e) {
+    if (e.target.getAttribute('data-action') !== 'exam-date') return;
+    var sid = e.target.getAttribute('data-subject');
+    callServer('updateSubjectExamDate', [sid, e.target.value], function (data) {
+      applyDataAndRender(data);
+      showToast('試験日を更新しました');
+    });
+  });
+
+  $('settings-subject-list').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action="delete-subject"]');
+    if (!btn) return;
+    var sid = btn.getAttribute('data-subject');
+    var subject = state.subjects.filter(function (s) { return s.subjectId === sid; })[0];
+    if (!subject) return;
+    var count = tasksOf(sid).length;
+    var msg = '科目「' + subject.name + '」を削除しますか?'
+      + (count > 0 ? '\n(属する ' + count + ' 件のタスクも削除されます)' : '');
+    if (!confirm(msg)) return;
+    callServer('deleteSubject', [sid], function (data) {
+      applyDataAndRender(data);
+      showToast('科目を削除しました');
+    });
+  });
+}
+
+// ===== 初期化 =====
+
+window.addEventListener('load', function () {
+  setupEvents();
+  callServer('getDashboardData', [], function (data) {
+    applyDataAndRender(data);
+    $('loading').style.display = 'none';
+    $('app').hidden = false;
+  });
+});
+</script>

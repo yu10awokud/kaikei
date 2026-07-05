@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+
+  <div id="loading" class="loading-overlay">
+    <div class="spinner"></div>
+    <p>読み込み中…</p>
+  </div>
+
+  <header class="app-header">
+    <h1>📚 テスト勉強ダッシュボード</h1>
+    <button class="btn btn-ghost" id="btn-open-settings" type="button">⚙ 科目の管理</button>
+  </header>
+
+  <main class="container" id="app" hidden>
+
+    <!-- 1. 次の試験カウンター -->
+    <section class="hero" id="hero">
+      <p class="hero-label">次の試験</p>
+      <p class="hero-main" id="hero-main">—</p>
+      <p class="hero-sub" id="hero-sub"></p>
+    </section>
+
+    <!-- 2. 全体進捗ゲージ -->
+    <section class="panel gauge-panel">
+      <div class="gauge">
+        <svg viewBox="0 0 120 120" class="gauge-svg" aria-hidden="true">
+          <circle class="gauge-track" cx="60" cy="60" r="52"></circle>
+          <circle class="gauge-value" id="gauge-circle" cx="60" cy="60" r="52"></circle>
+        </svg>
+        <div class="gauge-text">
+          <span class="gauge-num" id="gauge-num">0</span><span class="gauge-unit">%</span>
+        </div>
+      </div>
+      <div class="gauge-meta">
+        <h2>全体進捗</h2>
+        <p id="gauge-detail">全タスクの平均進捗率</p>
+      </div>
+    </section>
+
+    <!-- 5. 期限アラート -->
+    <section class="panel alert-panel" id="alert-panel" hidden>
+      <h2>⚠ 期限が近いタスク</h2>
+      <ul id="alert-list" class="alert-list"></ul>
+    </section>
+
+    <!-- 3+4. 科目別カード一覧 -->
+    <section id="subjects-area">
+      <h2 class="section-title">科目別の進捗</h2>
+      <div id="subject-list"></div>
+      <div id="subjects-empty" class="empty-state" hidden>
+        <p class="empty-icon">🗂</p>
+        <p>まだ科目が登録されていません。</p>
+        <p>まずは「科目の管理」から科目と試験日を登録しましょう。</p>
+        <button class="btn btn-primary" id="btn-empty-add-subject" type="button">＋ 科目を追加する</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 6. 科目管理モーダル -->
+  <div class="modal-backdrop" id="settings-modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-head">
+        <h2 id="settings-title">科目の管理</h2>
+        <button class="btn btn-ghost btn-close" id="btn-close-settings" type="button" aria-label="閉じる">✕</button>
+      </div>
+
+      <form class="add-form" id="form-add-subject">
+        <div class="field">
+          <label for="new-subject-name">科目名</label>
+          <input type="text" id="new-subject-name" placeholder="例:数学" maxlength="40" required>
+        </div>
+        <div class="field">
+          <label for="new-subject-exam">試験日(任意)</label>
+          <input type="date" id="new-subject-exam">
+        </div>
+        <button class="btn btn-primary" type="submit">＋ 追加</button>
+      </form>
+
+      <ul id="settings-subject-list" class="settings-list"></ul>
+      <p class="settings-hint">試験日を変更すると即座に保存されます。科目を削除すると、その科目のタスクもすべて削除されます。</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
