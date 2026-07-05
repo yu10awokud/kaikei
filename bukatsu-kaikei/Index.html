@@ -236,6 +236,25 @@
     </div>
   </div>
 
+  <!-- 残高PDF発行モーダル（下部メモの入力） -->
+  <div id="pdfModal" class="modal-overlay">
+    <div class="modal">
+      <h3>残高PDFを発行</h3>
+      <p class="hint">下の3つはPDF右下に載るメモです（空欄でもOK）。内容は保存され、次回もそのまま使えます。</p>
+      <label class="fld-label">［徴収内容］</label>
+      <textarea id="pdfCollected" rows="2" placeholder="例: 6月プール代"></textarea>
+      <label class="fld-label">［徴収予定］</label>
+      <textarea id="pdfPlanned" rows="3" placeholder="例: 近医水（エントリー/レセ）&#10;西医体（エントリー/関連費）"></textarea>
+      <label class="fld-label">［昨月徴収歴］</label>
+      <textarea id="pdfHistory" rows="2" placeholder="例: 藤井2/西川2/山本夏5/…"></textarea>
+      <div class="modal-footer">
+        <span class="grow"></span>
+        <button id="pdfCancelBtn">閉じる</button>
+        <button id="pdfGenBtn" class="primary">📄 PDFを発行</button>
+      </div>
+    </div>
+  </div>
+
   <div id="loading" class="loading">処理中...</div>
 
   <?!= include('JavaScript'); ?>

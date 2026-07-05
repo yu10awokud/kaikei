@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // 残高PDF
   document.getElementById('pdfBtn').addEventListener('click', generatePdf);
+  bindPdfModal();
 
   // マスタ
   document.getElementById('addMemberBtn').addEventListener('click', function () { openMemberModal(null); });
@@ -646,16 +647,38 @@ function deleteExt(id) {
 }
 
 // ===== 残高PDF発行 =====
+// ボタン → メモ入力モーダルを開く（前回の内容を読み込む）
 function generatePdf() {
   loading(true);
-  call('generateBalancePdf').then(function (res) {
+  call('getPdfNotes').then(function (n) {
     loading(false);
-    if (!res || !res.ok) { alert('PDFの発行に失敗しました'); return; }
-    // 新しいタブでDrive上のPDFを開く（スマホはDriveアプリ/ブラウザで表示）
-    window.open(res.url, '_blank');
-  }).catch(function (err) {
-    loading(false);
-    alert('PDF発行エラー: ' + err.message + '\n（初回はDriveへのアクセス許可が必要です。エディタで init を一度実行して許可してください）');
+    document.getElementById('pdfCollected').value = n.collected || '';
+    document.getElementById('pdfPlanned').value = n.planned || '';
+    document.getElementById('pdfHistory').value = n.history || '';
+    document.getElementById('pdfModal').classList.add('show');
+  }).catch(function (err) { loading(false); alert('読み込みエラー: ' + err.message); });
+}
+
+function bindPdfModal() {
+  document.getElementById('pdfCancelBtn').addEventListener('click', function () {
+    document.getElementById('pdfModal').classList.remove('show');
+  });
+  document.getElementById('pdfGenBtn').addEventListener('click', function () {
+    var notes = {
+      collected: document.getElementById('pdfCollected').value,
+      planned: document.getElementById('pdfPlanned').value,
+      history: document.getElementById('pdfHistory').value
+    };
+    loading(true);
+    call('generateBalancePdf', [state.year, state.month, notes]).then(function (res) {
+      loading(false);
+      if (!res || !res.ok) { alert('PDFの発行に失敗しました'); return; }
+      document.getElementById('pdfModal').classList.remove('show');
+      window.open(res.url, '_blank'); // Drive上のPDFを新しいタブで開く
+    }).catch(function (err) {
+      loading(false);
+      alert('PDF発行エラー: ' + err.message + '\n（初回はDriveへのアクセス許可が必要です。エディタで init を一度実行して許可してください）');
+    });
   });
 }
 </script>

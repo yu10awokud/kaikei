@@ -30,6 +30,7 @@ const SHEET_PAYMENT  = '支払い履歴';
 const SHEET_EXTERNAL = '外部参加記録';
 const SHEET_EVENT    = 'イベント';
 const SHEET_EVENT_ATTEND = 'イベント参加';
+const SHEET_PDFNOTE  = 'PDF備考';
 
 // 各シートのヘッダー（列順そのまま）
 const HEADERS = {};
@@ -43,6 +44,7 @@ HEADERS[SHEET_PAYMENT]  = ['ID', '日付', '部員ID', 'プール名', '金額',
 HEADERS[SHEET_EXTERNAL] = ['ID', '日付', '氏名', '所属', '使用プール', '金額', '決済手段', '状態', 'メモ'];
 HEADERS[SHEET_EVENT]    = ['ID', '日付', 'イベント名', '用途', '金額', '精算済'];
 HEADERS[SHEET_EVENT_ATTEND] = ['ID', 'イベントID', '部員ID'];
+HEADERS[SHEET_PDFNOTE]  = ['キー', '値']; // PDF下部のメモ（徴収内容/徴収予定/昨月徴収歴）
 
 // 初回のみ投入するサンプルのプール（後から画面で編集可能）
 // [プール名, 料金, マネも徴収するか]
@@ -714,71 +716,191 @@ function unsettleEvent(id) {
   return { ok: true };
 }
 
-// ===== 残高PDFの発行 =====
-// 全部員の残高カードを学年ごとに色分けした1枚のPDFを生成し、Driveに保存してURLを返す。
-function generateBalancePdf() {
+// ===== PDF下部メモ（徴収内容/徴収予定/昨月徴収歴）=====
+function getPdfNotes() {
   setupSheets_();
+  const def = { collected: '', planned: '', history: '' };
+  rows_(SHEET_PDFNOTE).forEach(function (r) {
+    const k = String(r[0]);
+    if (k in def) def[k] = String(r[1] || '');
+  });
+  return def;
+}
+
+function savePdfNotes(notes) {
+  setupSheets_();
+  const sh = sheet_(SHEET_PDFNOTE);
+  const rows = [['キー', '値'],
+    ['collected', (notes && notes.collected) || ''],
+    ['planned',   (notes && notes.planned)   || ''],
+    ['history',   (notes && notes.history)   || '']];
+  sh.clearContents();
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
+  sh.getRange(1, 1, 1, 2).setFontWeight('bold');
+  return { ok: true };
+}
+
+// ===== 残高PDFの発行（配布用の縦長A4レイアウト） =====
+// 学年ごとに色分けした残高一覧＋富豪/借金/出席ランキング＋徴収メモを1枚のPDFにする。
+function generateBalancePdf(year, month, notes) {
+  setupSheets_();
+  if (notes) savePdfNotes(notes);
+  const memo = getPdfNotes();
+
   const tz = Session.getScriptTimeZone();
-  const today = Utilities.formatDate(new Date(), tz, 'yyyy/MM/dd');
-  const stamp = Utilities.formatDate(new Date(), tz, 'yyyyMMdd-HHmm');
+  const now = new Date();
+  const y = year || now.getFullYear();
+  const m = month || (now.getMonth() + 1);
+  const titleDate = Utilities.formatDate(now, tz, 'yyyy年 M月 d日');
+  const stamp = Utilities.formatDate(now, tz, 'yyyyMMdd-HHmm');
+
   const balances = getBalances();
 
-  // 学年ごとの色（登場順にパレットを割り当て）
-  const palette = ['#2563eb', '#16a34a', '#d97706', '#db2777', '#7c3aed', '#0891b2', '#dc2626'];
+  // 学年ごとの淡い背景色（登場順に割り当て）。金額列は一律ゴールド。
+  const gradePalette = ['#f7d4cf', '#fff2cc', '#dce3f7', '#d9ead3', '#cfe0f7', '#fce0cc', '#e8d5f0', '#d5eef0'];
+  const goldBg = '#ffd45e';
+  const negColor = '#c00000';
   const gradeColor = {};
-  let ci = 0;
-  balances.forEach(function (m) {
-    const g = m.grade || '未設定';
-    if (!(g in gradeColor)) { gradeColor[g] = palette[ci % palette.length]; ci++; }
+  let gi = 0;
+  balances.forEach(function (mm) {
+    const g = mm.grade || '未設定';
+    if (!(g in gradeColor)) { gradeColor[g] = gradePalette[gi % gradePalette.length]; gi++; }
   });
 
-  // 学年→氏名（あいうえお順ではなく登録順）でカードを並べる。学年順にソート。
-  const sorted = balances.slice().sort(function (a, b) {
-    return String(a.grade).localeCompare(String(b.grade)) || String(a.name).localeCompare(String(b.name));
+  // 学年ごとにまとめて並べる（学年内は登録順を維持）
+  const order = [];       // 学年の登場順
+  const byGrade = {};
+  balances.forEach(function (mm) {
+    const g = mm.grade || '未設定';
+    if (!byGrade[g]) { byGrade[g] = []; order.push(g); }
+    byGrade[g].push(mm);
   });
 
-  const cards = sorted.map(function (m) {
-    const color = gradeColor[m.grade || '未設定'];
-    const bal = Math.round(m.balance);
-    const balColor = bal < 0 ? '#dc2626' : '#111827';
-    const warn = bal < 0 ? '<div class="warn">⚠ 残高不足</div>' : '';
-    return '' +
-      '<div class="card" style="border-top:6px solid ' + color + '">' +
-        '<div class="chead">' +
-          '<span class="name">' + escHtml_(m.name) + '</span>' +
-          '<span class="grade" style="background:' + color + '">' + escHtml_(m.grade || '—') + '</span>' +
-        '</div>' +
-        '<div class="dept">' + escHtml_(m.dept || '') + '　' + escHtml_(m.role || '') + '</div>' +
-        '<div class="bal" style="color:' + balColor + '">' + yen_(bal) + '</div>' +
-        '<div class="sub">チャージ計 ' + yen_(m.charged) + '／支払計 ' + yen_(m.paid) + '</div>' +
-        warn +
-      '</div>';
-  }).join('');
+  let balRows = '';
+  order.forEach(function (g, idx) {
+    const bg = gradeColor[g];
+    byGrade[g].forEach(function (mm, j) {
+      const bal = Math.round(mm.balance);
+      const col = bal < 0 ? negColor : '#111827';
+      // 学年の変わり目に点線区切りを入れる
+      const sep = (idx > 0 && j === 0) ? 'border-top:2px dashed #555;' : '';
+      balRows +=
+        '<tr>' +
+          '<td class="nm" style="background:' + bg + ';' + sep + '">' + escHtml_(mm.name) + '</td>' +
+          '<td class="am" style="background:' + goldBg + ';color:' + col + ';' + sep + '">' + yen_(bal) + '</td>' +
+        '</tr>';
+    });
+  });
+
+  // 富豪・借金ランキング（上位3／下位3）
+  const rk = getBalanceRanking();
+  function rankRows(arr, klass) {
+    return arr.map(function (mm, i) {
+      const bal = Math.round(mm.balance);
+      const col = bal < 0 ? negColor : '#111827';
+      return '<tr class="' + klass + ' r' + (i + 1) + '">' +
+        '<td class="pos">第' + (i + 1) + '位</td>' +
+        '<td class="who">' + escHtml_(mm.name) + '</td>' +
+        '<td class="amt" style="color:' + col + '">' + yen_(bal) + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  // 月間 出席ランキング（出席回数でティア分け、名前を「・」で連結）
+  const att = getAttendanceRanking(y, m);
+  const attRows = attendanceTierRows_(att);
+
+  // メモ（改行を <br> に）
+  function nl(s) { return escHtml_(s).replace(/\n/g, '<br>'); }
 
   const html = '' +
-    '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
-    'body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;color:#111827;margin:24px;}' +
-    'h1{font-size:20px;margin:0 0 4px;}' +
-    '.meta{color:#6b7280;font-size:12px;margin-bottom:16px;}' +
-    '.grid{display:flex;flex-wrap:wrap;gap:12px;}' +
-    '.card{width:31%;box-sizing:border-box;border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;page-break-inside:avoid;}' +
-    '.chead{display:flex;justify-content:space-between;align-items:center;}' +
-    '.name{font-size:15px;font-weight:700;}' +
-    '.grade{color:#fff;font-size:11px;padding:2px 8px;border-radius:999px;}' +
-    '.dept{font-size:11px;color:#6b7280;margin:2px 0 8px;}' +
-    '.bal{font-size:24px;font-weight:800;}' +
-    '.sub{font-size:11px;color:#6b7280;margin-top:4px;}' +
-    '.warn{color:#dc2626;font-size:11px;font-weight:700;margin-top:4px;}' +
-    '</style></head><body>' +
-    '<h1>プリペイド残高状況</h1>' +
-    '<div class="meta">発行日: ' + today + '　／　部員数: ' + balances.length + '名</div>' +
-    '<div class="grid">' + cards + '</div>' +
-    '</body></html>';
+  '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+  'body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;color:#111827;margin:26px 30px;}' +
+  '.title{text-align:center;font-size:24px;font-weight:800;margin-bottom:2px;}' +
+  '.title small{font-size:15px;font-weight:600;margin-left:10px;}' +
+  '.layout{width:100%;border-collapse:collapse;}' +
+  '.layout>tbody>tr>td{vertical-align:top;}' +
+  '.col-left{width:44%;padding-right:24px;}' +
+  '.col-right{width:56%;}' +
+  'h2{font-size:17px;margin:6px 0 8px;font-weight:800;}' +
+  'h3{font-size:15px;margin:20px 0 6px;font-weight:800;}' +
+  '.bal{border-collapse:collapse;width:100%;border:2px solid #111;}' +
+  '.bal td{padding:5px 10px;font-size:13px;border-right:1px solid #bbb;}' +
+  '.bal .nm{text-align:center;width:45%;}' +
+  '.bal .am{text-align:right;font-weight:700;border-right:none;}' +
+  '.rank{border-collapse:collapse;width:100%;border:2px solid #111;margin-bottom:4px;}' +
+  '.rank td{padding:5px 10px;font-size:13px;border:1px solid #999;}' +
+  '.rank .pos{text-align:center;width:26%;}' +
+  '.rank .who{text-align:center;}' +
+  '.rank .amt{text-align:right;font-weight:700;width:34%;}' +
+  '.rich .pos{background:#fff27a;} .rich .who,.rich .amt{background:#fbfbc6;}' +
+  '.rich.r1 .pos{background:#fff000;} ' +
+  '.debt .pos{background:#8c9bb0;color:#fff;} .debt .who,.debt .amt{background:#d3d9e2;}' +
+  '.debt.r1 .pos{background:#6f7f96;} ' +
+  '.att td{padding:5px 10px;font-size:13px;border:1px solid #7fb4e0;}' +
+  '.att .head td{background:#2e8fd6;color:#fff;font-weight:800;text-align:center;}' +
+  '.att .pos{text-align:center;width:26%;background:#d3e7f7;}' +
+  '.att .who{text-align:center;background:#eaf3fb;}' +
+  '.memo{margin-top:22px;font-size:13px;line-height:1.7;}' +
+  '.memo .blk{margin-bottom:14px;}' +
+  '.memo .lbl{font-weight:800;}' +
+  '</style></head><body>' +
+  '<div class="title">会計<small>' + titleDate + ' 現在</small></div>' +
+  '<table class="layout"><tr>' +
+    '<td class="col-left">' +
+      '<h2>プリペイド残高 💰</h2>' +
+      '<table class="bal">' + balRows + '</table>' +
+    '</td>' +
+    '<td class="col-right">' +
+      '<h3>富豪ランキング 👑</h3>' +
+      '<table class="rank">' + rankRows(rk.rich, 'rich') + '</table>' +
+      '<h3>借金ランキング ☠️</h3>' +
+      '<table class="rank">' + rankRows(rk.debt, 'debt') + '</table>' +
+      '<h3>月間 出席ランキング 🏊 <small style="font-weight:600;font-size:12px;">（' + y + '年' + m + '月）</small></h3>' +
+      '<table class="rank att">' + attRows + '</table>' +
+      '<div class="memo">' +
+        '<div class="blk"><span class="lbl">［徴収内容］</span><br>' + nl(memo.collected) + '</div>' +
+        '<div class="blk"><span class="lbl">［徴収予定］</span><br>' + nl(memo.planned) + '</div>' +
+        '<div class="blk"><span class="lbl">［昨月徴収歴］</span><br>' + nl(memo.history) + '</div>' +
+      '</div>' +
+    '</td>' +
+  '</tr></table>' +
+  '</body></html>';
 
-  const pdf = Utilities.newBlob(html, 'text/html', '残高状況.html')
-    .getAs('application/pdf').setName('残高状況_' + stamp + '.pdf');
+  const pdf = Utilities.newBlob(html, 'text/html', '会計.html')
+    .getAs('application/pdf').setName('会計_' + stamp + '.pdf');
   const file = DriveApp.createFile(pdf);
   return { ok: true, url: file.getUrl(), name: file.getName() };
+}
+
+// 出席回数でティア分けし、各段の名前を「・」で連結した行HTMLを返す。
+// 最上段は全出席なら「全出席」、そうでなければ「第1位」。以降 第2位/第3位…（最大4段）。
+function attendanceTierRows_(att) {
+  const totalDays = att.totalDays || 0;
+  const withCount = (att.ranking || []).filter(function (r) { return r.count > 0; });
+  if (withCount.length === 0) {
+    return '<tr><td class="pos">—</td><td class="who">出席記録がありません</td></tr>';
+  }
+  // 出席回数（降順）ごとに氏名をまとめる
+  const counts = [];
+  const names = {};
+  withCount.forEach(function (r) {
+    if (!(r.count in names)) { names[r.count] = []; counts.push(r.count); }
+    names[r.count].push(r.name);
+  });
+  counts.sort(function (a, b) { return b - a; });
+
+  let html = '';
+  counts.slice(0, 4).forEach(function (c, i) {
+    const joined = escHtml_(names[c].join('・'));
+    if (i === 0) {
+      const label = (totalDays > 0 && c === totalDays) ? '全出席' : '第1位';
+      html += '<tr class="head"><td>' + label + '</td><td>' + joined + '</td></tr>';
+    } else {
+      html += '<tr><td class="pos">第' + (i + 1) + '位</td><td class="who">' + joined + '</td></tr>';
+    }
+  });
+  return html;
 }
 
 // PDF用ヘルパー（クライアントには送らないサーバー内整形）
