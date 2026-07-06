@@ -881,6 +881,8 @@ function generateBalancePdf(year, month, notes) {
     SpreadsheetApp.flush();
     const blob = exportSheetAsPdf_(ss, sh, lastRow, '会計_' + stamp);
     const file = DriveApp.createFile(blob);
+    // ログイン不要（匿名）アクセスでもPDFを開けるよう、リンクを知っていれば閲覧可にする
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
     return { ok: true, url: file.getUrl(), name: file.getName() };
   } finally {
     try { ss.deleteSheet(sh); } catch (e) {}
