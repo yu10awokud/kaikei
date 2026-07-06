@@ -1,0 +1,654 @@
+<script>
+  // ==================================================
+  // 状態
+  // ==================================================
+  let current = { year: 0, month: 0 };  // 表示中の月(month: 1〜12)
+  let monthData = null;                 // getMonthData の結果
+  let categories = [];                  // カテゴリ一覧
+  let tasks = [];                       // タスク一覧
+  let tasksLoaded = false;
+  let editingDate = null;               // 日次モーダルで開いている日付
+  let editingTaskId = null;             // タスクモーダルで編集中のID(nullなら新規)
+  let timetableLoaded = false;
+
+  const DOW_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+  const TT_DAYS = ['月', '火', '水', '木', '金', '土', '日'];
+
+  // ==================================================
+  // 初期化
+  // ==================================================
+  document.addEventListener('DOMContentLoaded', () => {
+    const now = new Date();
+    current.year = now.getFullYear();
+    current.month = now.getMonth() + 1;
+    bindGlobalEvents();
+    loadMonth();
+  });
+
+  function bindGlobalEvents() {
+    // タブ切り替え
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => showView(btn.dataset.view));
+    });
+    // 月ナビゲーション
+    byId('prev-month').addEventListener('click', () => moveMonth(-1));
+    byId('next-month').addEventListener('click', () => moveMonth(1));
+    byId('today-btn').addEventListener('click', () => {
+      const now = new Date();
+      current.year = now.getFullYear();
+      current.month = now.getMonth() + 1;
+      loadMonth();
+    });
+    // モーダルを閉じるボタン
+    document.querySelectorAll('[data-close]').forEach(btn => {
+      btn.addEventListener('click', () => hideModal(btn.dataset.close));
+    });
+    // モーダル外クリックで閉じる
+    document.querySelectorAll('.modal-overlay').forEach(ov => {
+      ov.addEventListener('click', e => { if (e.target === ov) hideModal(ov.id); });
+    });
+    // 日次保存
+    byId('save-day-btn').addEventListener('click', saveDay);
+    // タスク
+    document.querySelectorAll('.add-task-btn').forEach(btn => {
+      btn.addEventListener('click', () => openTaskModal(null, btn.dataset.type));
+    });
+    byId('save-task-btn').addEventListener('click', saveTaskFromModal);
+    byId('task-type').addEventListener('change', updateProgressFieldVisibility);
+    byId('task-progress').addEventListener('input', () => {
+      byId('task-progress-val').textContent = byId('task-progress').value + '%';
+    });
+    // 設定
+    byId('add-cat-btn').addEventListener('click', addCategory);
+    byId('save-timetable-btn').addEventListener('click', saveTimetableFromForm);
+  }
+
+  // ==================================================
+  // 共通ヘルパー
+  // ==================================================
+  function byId(id) { return document.getElementById(id); }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function pad2(n) { return ('0' + n).slice(-2); }
+
+  function dateStrOf(year, month, day) {
+    return year + '-' + pad2(month) + '-' + pad2(day);
+  }
+
+  let toastTimer = null;
+  function showToast(msg, isError) {
+    const t = byId('toast');
+    t.textContent = msg;
+    t.classList.toggle('error', !!isError);
+    t.classList.remove('hidden');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.add('hidden'), isError ? 5000 : 2500);
+  }
+
+  function showError(err) {
+    showToast('エラー: ' + (err && err.message ? err.message : err), true);
+  }
+
+  function showView(view) {
+    document.querySelectorAll('.tab-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.view === view));
+    document.querySelectorAll('.view').forEach(v =>
+      v.classList.toggle('active', v.id === 'view-' + view));
+    if (view === 'tasks' && !tasksLoaded) loadTasks();
+    if (view === 'settings') {
+      renderCategories();
+      if (!timetableLoaded) loadTimetable();
+    }
+  }
+
+  function hideModal(id) { byId(id).classList.add('hidden'); }
+  function showModal(id) { byId(id).classList.remove('hidden'); }
+
+  // ==================================================
+  // カレンダービュー
+  // ==================================================
+  function moveMonth(diff) {
+    let m = current.month + diff;
+    if (m < 1) { m = 12; current.year--; }
+    if (m > 12) { m = 1; current.year++; }
+    current.month = m;
+    loadMonth();
+  }
+
+  function loadMonth() {
+    byId('cal-title').textContent = current.year + '年' + current.month + '月';
+    byId('calendar').innerHTML = '<div class="cal-loading">読み込み中...</div>';
+    google.script.run
+      .withSuccessHandler(data => {
+        monthData = data;
+        categories = data.categories || [];
+        renderLegend();
+        renderCalendar();
+        byId('cal-note').classList.toggle('hidden', data.calendarOk !== false);
+      })
+      .withFailureHandler(err => {
+        byId('calendar').innerHTML = '<div class="cal-loading">読み込みに失敗しました</div>';
+        showError(err);
+      })
+      .getMonthData(current.year, current.month);
+  }
+
+  function renderLegend() {
+    byId('cal-legend').innerHTML = categories.map(c =>
+      '<span class="legend-item"><span class="mark" style="background:' + esc(c.color) + '"></span>' +
+      esc(c.name) + '</span>'
+    ).join('');
+  }
+
+  function renderCalendar() {
+    const y = current.year, m = current.month;
+    const firstDow = new Date(y, m - 1, 1).getDay();
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const todayStr = dateStrOf(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    const catColor = {};
+    categories.forEach(c => { catColor[c.id] = c.color; });
+    const catName = {};
+    categories.forEach(c => { catName[c.id] = c.name; });
+
+    let html = DOW_LABELS.map((d, i) =>
+      '<div class="cal-dow' + (i === 0 ? ' sun' : i === 6 ? ' sat' : '') + '">' + d + '</div>'
+    ).join('');
+
+    for (let i = 0; i < firstDow; i++) html += '<div class="cal-cell empty"></div>';
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = dateStrOf(y, m, day);
+      const dow = (firstDow + day - 1) % 7;
+      const info = (monthData.days || {})[dateStr];
+      const events = (monthData.events || {})[dateStr] || [];
+
+      const classes = ['cal-cell'];
+      if (dow === 0) classes.push('sun');
+      if (dow === 6) classes.push('sat');
+      if (dateStr === todayStr) classes.push('today');
+      if (events.length) classes.push('has-event');
+
+      let marksHtml = '';
+      if (info && info.marks.length) {
+        marksHtml = info.marks.map(id =>
+          '<span class="mark" style="background:' + esc(catColor[id] || '#9e9e9e') + '" title="' +
+          esc(catName[id] || '') + '"></span>'
+        ).join('');
+      }
+
+      let eventsHtml = events.slice(0, 2).map(ev =>
+        '<div class="cal-event">' + (ev.time ? esc(ev.time) + ' ' : '') + esc(ev.title) + '</div>'
+      ).join('');
+      if (events.length > 2) {
+        eventsHtml += '<div class="cal-event-more">他' + (events.length - 2) + '件</div>';
+      }
+
+      html += '<div class="' + classes.join(' ') + '" data-date="' + dateStr + '">' +
+        '<div class="cal-daynum">' + day + '</div>' +
+        '<div class="cal-marks">' + marksHtml + '</div>' +
+        eventsHtml +
+        '</div>';
+    }
+
+    byId('calendar').innerHTML = html;
+    document.querySelectorAll('.cal-cell[data-date]').forEach(cell => {
+      cell.addEventListener('click', () => openDayModal(cell.dataset.date));
+    });
+  }
+
+  // ==================================================
+  // 日次入力モーダル
+  // ==================================================
+  function openDayModal(dateStr) {
+    editingDate = dateStr;
+    const d = new Date(dateStr + 'T00:00:00');
+    byId('day-modal-title').textContent =
+      d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日(' + DOW_LABELS[d.getDay()] + ')';
+    byId('day-modal-body').innerHTML = '<p class="note">読み込み中...</p>';
+    showModal('day-modal');
+    google.script.run
+      .withSuccessHandler(data => {
+        if (editingDate !== dateStr) return; // 別の日を開き直した場合は無視
+        categories = data.categories || categories;
+        renderDayForm(data);
+      })
+      .withFailureHandler(err => {
+        byId('day-modal-body').innerHTML = '<p class="note warn">読み込みに失敗しました</p>';
+        showError(err);
+      })
+      .getDayData(dateStr);
+  }
+
+  function renderDayForm(data) {
+    let html = '';
+
+    // --- Googleカレンダーの予定 ---
+    if (data.events && data.events.length) {
+      html += '<div class="day-section"><h3>📆 Googleカレンダーの予定</h3><div class="day-events">' +
+        data.events.map(ev =>
+          '<div class="day-event-item">' + (ev.time ? esc(ev.time) + ' ' : '【終日】') + esc(ev.title) + '</div>'
+        ).join('') +
+        '</div></div>';
+    }
+
+    // --- 大学(1〜5限) ---
+    html += '<div class="day-section"><h3><span class="mark" style="background:' +
+      esc(colorOf('univ')) + '"></span>大学</h3>' +
+      '<table class="univ-table"><tr><th></th><th>科目</th><th>出席</th><th>メモ</th></tr>';
+    data.university.forEach((p, i) => {
+      html += '<tr>' +
+        '<td class="period-label">' + (i + 1) + '限</td>' +
+        '<td><input type="text" id="univ-subject-' + i + '" value="' + esc(p.subject) + '" placeholder="科目名"></td>' +
+        '<td style="text-align:center"><input type="checkbox" id="univ-attended-' + i + '"' + (p.attended ? ' checked' : '') + '></td>' +
+        '<td><input type="text" id="univ-memo-' + i + '" value="' + esc(p.memo) + '" placeholder="小テスト等"></td>' +
+        '</tr>';
+    });
+    html += '</table></div>';
+
+    // --- 部活 ---
+    html += '<div class="day-section"><h3><span class="mark" style="background:' +
+      esc(colorOf('club')) + '"></span>部活</h3>' +
+      '<label class="check-row"><input type="checkbox" id="club-done"' + (data.club.done ? ' checked' : '') + '>行った</label>' +
+      '<textarea id="club-memo" placeholder="練習内容など">' + esc(data.club.memo) + '</textarea></div>';
+
+    // --- 筋トレ ---
+    html += '<div class="day-section"><h3><span class="mark" style="background:' +
+      esc(colorOf('training')) + '"></span>筋トレ</h3>' +
+      '<label class="check-row"><input type="checkbox" id="training-done"' + (data.training.done ? ' checked' : '') + '>実施した</label>' +
+      '<textarea id="training-detail" placeholder="種目・回数・時間など">' + esc(data.training.detail) + '</textarea></div>';
+
+    // --- 追加カテゴリ ---
+    categories.filter(c => !c.fixed).forEach(c => {
+      const v = (data.custom || {})[c.id] || { done: false, memo: '' };
+      html += '<div class="day-section"><h3><span class="mark" style="background:' + esc(c.color) + '"></span>' +
+        esc(c.name) + '</h3>' +
+        '<label class="check-row"><input type="checkbox" class="custom-done" data-cat="' + esc(c.id) + '"' +
+        (v.done ? ' checked' : '') + '>やった</label>' +
+        '<input type="text" class="custom-memo" data-cat="' + esc(c.id) + '" value="' + esc(v.memo) + '" placeholder="メモ" style="width:100%">' +
+        '</div>';
+    });
+
+    // --- メモ・タスク進捗 ---
+    html += '<div class="day-section"><h3>📝 その他メモ</h3>' +
+      '<textarea id="day-memo">' + esc(data.memo) + '</textarea></div>';
+    html += '<div class="day-section"><h3>✅ 短期タスク進捗</h3>' +
+      '<textarea id="day-short-task" placeholder="今日進めた短期タスクの内容">' + esc(data.shortTask) + '</textarea></div>';
+    html += '<div class="day-section"><h3>🎯 中長期タスク進捗</h3>' +
+      '<textarea id="day-long-task" placeholder="今日進めた中長期タスクの内容">' + esc(data.longTask) + '</textarea></div>';
+
+    // --- カレンダーへ予定追加 ---
+    html += '<div class="day-section"><h3>➕ Googleカレンダーに予定を追加</h3>' +
+      '<div class="event-add-row">' +
+      '<input type="text" id="new-event-title" placeholder="予定タイトル">' +
+      '<input type="time" id="new-event-start" title="開始(空欄なら終日)">' +
+      '<input type="time" id="new-event-end" title="終了">' +
+      '<button type="button" class="secondary small-btn" id="add-event-btn">追加</button>' +
+      '</div><p class="note">開始時刻を空欄にすると終日予定として登録します。</p></div>';
+
+    byId('day-modal-body').innerHTML = html;
+    byId('add-event-btn').addEventListener('click', addEventToCalendar);
+  }
+
+  function colorOf(catId) {
+    const c = categories.find(c => c.id === catId);
+    return c ? c.color : '#9e9e9e';
+  }
+
+  function collectDayForm() {
+    const university = [];
+    for (let i = 0; i < 5; i++) {
+      university.push({
+        period: i + 1,
+        subject: byId('univ-subject-' + i).value.trim(),
+        attended: byId('univ-attended-' + i).checked,
+        memo: byId('univ-memo-' + i).value.trim(),
+      });
+    }
+    const custom = {};
+    document.querySelectorAll('.custom-done').forEach(cb => {
+      const id = cb.dataset.cat;
+      const memoInput = document.querySelector('.custom-memo[data-cat="' + id + '"]');
+      custom[id] = { done: cb.checked, memo: memoInput ? memoInput.value.trim() : '' };
+    });
+    return {
+      university: university,
+      club: { done: byId('club-done').checked, memo: byId('club-memo').value },
+      training: { done: byId('training-done').checked, detail: byId('training-detail').value },
+      memo: byId('day-memo').value,
+      shortTask: byId('day-short-task').value,
+      longTask: byId('day-long-task').value,
+      custom: custom,
+    };
+  }
+
+  function saveDay() {
+    if (!editingDate || !byId('club-done')) return; // フォーム未描画なら何もしない
+    const btn = byId('save-day-btn');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    google.script.run
+      .withSuccessHandler(() => {
+        btn.disabled = false;
+        btn.textContent = '保存';
+        hideModal('day-modal');
+        showToast('保存しました');
+        loadMonth();
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = '保存';
+        showError(err);
+      })
+      .saveDayData(editingDate, collectDayForm());
+  }
+
+  function addEventToCalendar() {
+    const title = byId('new-event-title').value.trim();
+    if (!title) { showToast('予定のタイトルを入力してください', true); return; }
+    const start = byId('new-event-start').value;
+    const end = byId('new-event-end').value;
+    const btn = byId('add-event-btn');
+    btn.disabled = true;
+    btn.textContent = '追加中...';
+    const dateStr = editingDate;
+    google.script.run
+      .withSuccessHandler(() => {
+        btn.disabled = false;
+        btn.textContent = '追加';
+        showToast('カレンダーに予定を追加しました');
+        byId('new-event-title').value = '';
+        // 月ビューの予定表示を更新(モーダルは開いたまま裏で再描画)
+        google.script.run.withSuccessHandler(data => {
+          monthData = data;
+          renderCalendar();
+        }).getMonthData(current.year, current.month);
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = '追加';
+        showError(err);
+      })
+      .addCalendarEvent(dateStr, title, start, end);
+  }
+
+  // ==================================================
+  // タスク管理ビュー
+  // ==================================================
+  function loadTasks() {
+    byId('short-tasks').innerHTML = '<div class="task-empty">読み込み中...</div>';
+    byId('long-tasks').innerHTML = '';
+    google.script.run
+      .withSuccessHandler(list => {
+        tasks = list || [];
+        tasksLoaded = true;
+        renderTasks();
+      })
+      .withFailureHandler(showError)
+      .getTasks();
+  }
+
+  function sortTasks(list) {
+    const statusOrder = { '進行中': 0, '未着手': 1, '完了': 2 };
+    const prioOrder = { '高': 0, '中': 1, '低': 2 };
+    return list.slice().sort((a, b) =>
+      (statusOrder[a.status] - statusOrder[b.status]) ||
+      ((a.due || '9999') < (b.due || '9999') ? -1 : (a.due || '9999') > (b.due || '9999') ? 1 : 0) ||
+      (prioOrder[a.priority] - prioOrder[b.priority])
+    );
+  }
+
+  function renderTasks() {
+    renderTaskList('short-tasks', tasks.filter(t => t.type === '短期'), false);
+    renderTaskList('long-tasks', tasks.filter(t => t.type === '中長期'), true);
+  }
+
+  function renderTaskList(containerId, list, showProgress) {
+    const container = byId(containerId);
+    if (!list.length) {
+      container.innerHTML = '<div class="task-empty">タスクはありません</div>';
+      return;
+    }
+    const todayStr = dateStrOf(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    container.innerHTML = sortTasks(list).map(t => {
+      const prioClass = t.priority === '高' ? 'p-high' : t.priority === '低' ? 'p-low' : 'p-mid';
+      const overdue = t.due && t.due < todayStr && t.status !== '完了';
+      let html = '<div class="task-card' + (t.status === '完了' ? ' done' : '') + '" data-id="' + esc(t.id) + '">' +
+        '<div class="task-card-top">' +
+        '<span class="badge ' + prioClass + '">' + esc(t.priority) + '</span>' +
+        '<span class="task-name">' + esc(t.name) + '</span>' +
+        '</div>' +
+        '<div class="task-meta">' +
+        '<select class="task-status-select" data-id="' + esc(t.id) + '">' +
+        ['未着手', '進行中', '完了'].map(s =>
+          '<option value="' + s + '"' + (t.status === s ? ' selected' : '') + '>' + s + '</option>').join('') +
+        '</select>' +
+        (t.due ? '<span class="task-due' + (overdue ? ' overdue' : '') + '">期限: ' + esc(t.due) + (overdue ? ' ⚠' : '') + '</span>' : '') +
+        (showProgress ? '<span>' + t.progress + '%</span>' : '') +
+        '<span class="task-actions">' +
+        '<button type="button" class="edit" data-id="' + esc(t.id) + '">編集</button>' +
+        '<button type="button" class="del" data-id="' + esc(t.id) + '">削除</button>' +
+        '</span>';
+      if (showProgress) {
+        html += '<div class="progress-bar"><div style="width:' + t.progress + '%"></div></div>';
+      }
+      html += '</div></div>';
+      return html;
+    }).join('');
+
+    container.querySelectorAll('.task-status-select').forEach(sel => {
+      sel.addEventListener('change', () => changeTaskStatus(sel.dataset.id, sel.value));
+    });
+    container.querySelectorAll('.task-actions .edit').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const task = tasks.find(t => t.id === btn.dataset.id);
+        if (task) openTaskModal(task);
+      });
+    });
+    container.querySelectorAll('.task-actions .del').forEach(btn => {
+      btn.addEventListener('click', () => removeTask(btn.dataset.id));
+    });
+  }
+
+  function changeTaskStatus(taskId, status) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const updated = Object.assign({}, task, { status: status });
+    if (status === '完了' && task.type === '中長期') updated.progress = 100;
+    google.script.run
+      .withSuccessHandler(list => { tasks = list; renderTasks(); showToast('更新しました'); })
+      .withFailureHandler(err => { showError(err); renderTasks(); })
+      .saveTask(updated);
+  }
+
+  function removeTask(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    if (!confirm('「' + task.name + '」を削除しますか?')) return;
+    google.script.run
+      .withSuccessHandler(list => { tasks = list; renderTasks(); showToast('削除しました'); })
+      .withFailureHandler(showError)
+      .deleteTask(taskId);
+  }
+
+  function openTaskModal(task, defaultType) {
+    editingTaskId = task ? task.id : null;
+    byId('task-modal-title').textContent = task ? 'タスクを編集' : 'タスクを追加';
+    byId('task-name').value = task ? task.name : '';
+    byId('task-type').value = task ? task.type : (defaultType || '短期');
+    byId('task-due').value = task ? task.due : '';
+    byId('task-priority').value = task ? task.priority : '中';
+    byId('task-status').value = task ? task.status : '未着手';
+    byId('task-progress').value = task ? task.progress : 0;
+    byId('task-progress-val').textContent = (task ? task.progress : 0) + '%';
+    updateProgressFieldVisibility();
+    showModal('task-modal');
+    byId('task-name').focus();
+  }
+
+  function updateProgressFieldVisibility() {
+    byId('task-progress-field').classList.toggle('hidden', byId('task-type').value !== '中長期');
+  }
+
+  function saveTaskFromModal() {
+    const name = byId('task-name').value.trim();
+    if (!name) { showToast('タスク名を入力してください', true); return; }
+    const payload = {
+      id: editingTaskId,
+      name: name,
+      type: byId('task-type').value,
+      due: byId('task-due').value,
+      priority: byId('task-priority').value,
+      status: byId('task-status').value,
+      progress: Number(byId('task-progress').value) || 0,
+    };
+    const btn = byId('save-task-btn');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(list => {
+        btn.disabled = false;
+        tasks = list;
+        tasksLoaded = true;
+        hideModal('task-modal');
+        renderTasks();
+        showToast('保存しました');
+      })
+      .withFailureHandler(err => { btn.disabled = false; showError(err); })
+      .saveTask(payload);
+  }
+
+  // ==================================================
+  // 設定ビュー(カテゴリ・時間割)
+  // ==================================================
+  function renderCategories() {
+    const container = byId('category-list');
+    container.innerHTML = categories.map(c =>
+      '<div class="category-item">' +
+      '<input type="color" value="' + esc(c.color) + '" data-id="' + esc(c.id) + '" class="cat-color" title="色を変更">' +
+      (c.fixed
+        ? '<span class="cat-name">' + esc(c.name) + '</span><span class="fixed-label">(デフォルト)</span>'
+        : '<input type="text" class="cat-name cat-name-input" value="' + esc(c.name) + '" data-id="' + esc(c.id) + '" maxlength="20">' +
+          '<button type="button" class="danger-btn small-btn cat-del" data-id="' + esc(c.id) + '">削除</button>') +
+      '</div>'
+    ).join('');
+
+    container.querySelectorAll('.cat-color').forEach(input => {
+      input.addEventListener('change', () => updateCategory(input.dataset.id));
+    });
+    container.querySelectorAll('.cat-name-input').forEach(input => {
+      input.addEventListener('change', () => updateCategory(input.dataset.id));
+    });
+    container.querySelectorAll('.cat-del').forEach(btn => {
+      btn.addEventListener('click', () => removeCategory(btn.dataset.id));
+    });
+  }
+
+  function updateCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    const colorInput = document.querySelector('.cat-color[data-id="' + id + '"]');
+    const nameInput = document.querySelector('.cat-name-input[data-id="' + id + '"]');
+    google.script.run
+      .withSuccessHandler(list => {
+        categories = list;
+        renderCategories();
+        renderLegend();
+        showToast('更新しました');
+      })
+      .withFailureHandler(showError)
+      .saveCategory({
+        id: id,
+        name: nameInput ? nameInput.value.trim() : cat.name,
+        color: colorInput ? colorInput.value : cat.color,
+      });
+  }
+
+  function addCategory() {
+    const name = byId('new-cat-name').value.trim();
+    if (!name) { showToast('カテゴリ名を入力してください', true); return; }
+    google.script.run
+      .withSuccessHandler(list => {
+        categories = list;
+        byId('new-cat-name').value = '';
+        renderCategories();
+        renderLegend();
+        showToast('カテゴリを追加しました');
+      })
+      .withFailureHandler(showError)
+      .saveCategory({ name: name, color: byId('new-cat-color').value });
+  }
+
+  function removeCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    if (!confirm('カテゴリ「' + cat.name + '」を削除しますか?\n(過去の記録データは残りますがマーク表示されなくなります)')) return;
+    google.script.run
+      .withSuccessHandler(list => {
+        categories = list;
+        renderCategories();
+        renderLegend();
+        loadMonth();
+        showToast('削除しました');
+      })
+      .withFailureHandler(showError)
+      .deleteCategory(id);
+  }
+
+  function loadTimetable() {
+    byId('timetable').textContent = '読み込み中...';
+    google.script.run
+      .withSuccessHandler(tt => {
+        timetableLoaded = true;
+        renderTimetable(tt);
+      })
+      .withFailureHandler(err => {
+        byId('timetable').textContent = '読み込みに失敗しました';
+        showError(err);
+      })
+      .getTimetable();
+  }
+
+  function renderTimetable(tt) {
+    let html = '<table><tr><th></th>';
+    for (let p = 1; p <= 5; p++) html += '<th>' + p + '限</th>';
+    html += '</tr>';
+    TT_DAYS.forEach(d => {
+      const subjects = tt[d] || [];
+      html += '<tr><th>' + d + '</th>';
+      for (let p = 0; p < 5; p++) {
+        html += '<td><input type="text" data-day="' + d + '" data-period="' + p + '" value="' +
+          esc(subjects[p] || '') + '"></td>';
+      }
+      html += '</tr>';
+    });
+    html += '</table>';
+    byId('timetable').innerHTML = html;
+  }
+
+  function saveTimetableFromForm() {
+    const tt = {};
+    TT_DAYS.forEach(d => { tt[d] = ['', '', '', '', '']; });
+    document.querySelectorAll('#timetable input').forEach(input => {
+      tt[input.dataset.day][Number(input.dataset.period)] = input.value.trim();
+    });
+    const btn = byId('save-timetable-btn');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+    google.script.run
+      .withSuccessHandler(() => {
+        btn.disabled = false;
+        btn.textContent = '時間割を保存';
+        showToast('時間割を保存しました');
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false;
+        btn.textContent = '時間割を保存';
+        showError(err);
+      })
+      .saveTimetable(tt);
+  }
+</script>

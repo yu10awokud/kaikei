@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>予定・タスク管理</title>
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <header class="app-header">
+    <h1>📅 予定・タスク管理</h1>
+    <nav class="tabs">
+      <button type="button" class="tab-btn active" data-view="calendar">カレンダー</button>
+      <button type="button" class="tab-btn" data-view="tasks">タスク</button>
+      <button type="button" class="tab-btn" data-view="settings">設定</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== カレンダービュー ===== -->
+    <section id="view-calendar" class="view active">
+      <div class="cal-nav">
+        <button type="button" id="prev-month" class="icon-btn" title="前の月">‹</button>
+        <h2 id="cal-title">----年--月</h2>
+        <button type="button" id="next-month" class="icon-btn" title="次の月">›</button>
+        <button type="button" id="today-btn" class="secondary small-btn">今日</button>
+      </div>
+      <div id="cal-legend" class="cal-legend"></div>
+      <div id="calendar-wrap">
+        <div id="calendar" class="calendar">
+          <div class="cal-loading">読み込み中...</div>
+        </div>
+      </div>
+      <p id="cal-note" class="note warn hidden">
+        Googleカレンダーの予定を取得できませんでした。権限を承認済みか確認してください。
+      </p>
+    </section>
+
+    <!-- ===== タスクビュー ===== -->
+    <section id="view-tasks" class="view">
+      <div class="task-cols">
+        <div class="task-col">
+          <div class="task-col-head">
+            <h2>短期タスク</h2>
+            <button type="button" class="primary small-btn add-task-btn" data-type="短期">＋ 追加</button>
+          </div>
+          <div id="short-tasks" class="task-list"></div>
+        </div>
+        <div class="task-col">
+          <div class="task-col-head">
+            <h2>中長期タスク</h2>
+            <button type="button" class="primary small-btn add-task-btn" data-type="中長期">＋ 追加</button>
+          </div>
+          <div id="long-tasks" class="task-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 設定ビュー ===== -->
+    <section id="view-settings" class="view">
+      <div class="settings-block">
+        <h2>記録カテゴリ</h2>
+        <p class="note">カレンダーのマークに使うカテゴリです。「バイト」「読書」など自由に追加できます。色はいつでも変更可能です。</p>
+        <div id="category-list" class="category-list"></div>
+        <div class="category-add">
+          <input type="color" id="new-cat-color" value="#9c27b0" title="マークの色">
+          <input type="text" id="new-cat-name" placeholder="カテゴリ名(例: バイト)" maxlength="20">
+          <button type="button" id="add-cat-btn" class="primary small-btn">追加</button>
+        </div>
+      </div>
+
+      <div class="settings-block">
+        <h2>時間割(科目の登録)</h2>
+        <p class="note">曜日ごとに1〜5限の科目を登録すると、日次入力パネルの「大学」欄に自動で反映されます。</p>
+        <div id="timetable" class="timetable">読み込み中...</div>
+        <button type="button" id="save-timetable-btn" class="primary">時間割を保存</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== 日次入力モーダル ===== -->
+  <div id="day-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="day-modal-title">----</h2>
+        <button type="button" class="modal-close" data-close="day-modal">×</button>
+      </div>
+      <div id="day-modal-body" class="modal-body"></div>
+      <div class="modal-foot">
+        <button type="button" class="secondary" data-close="day-modal">キャンセル</button>
+        <button type="button" id="save-day-btn" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== タスク編集モーダル ===== -->
+  <div id="task-modal" class="modal-overlay hidden">
+    <div class="modal modal-small">
+      <div class="modal-head">
+        <h2 id="task-modal-title">タスク</h2>
+        <button type="button" class="modal-close" data-close="task-modal">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="field">タスク名
+          <input type="text" id="task-name" placeholder="例: レポート提出" maxlength="100">
+        </label>
+        <div class="field-row">
+          <label class="field">種別
+            <select id="task-type">
+              <option value="短期">短期</option>
+              <option value="中長期">中長期</option>
+            </select>
+          </label>
+          <label class="field">期限
+            <input type="date" id="task-due">
+          </label>
+        </div>
+        <div class="field-row">
+          <label class="field">優先度
+            <select id="task-priority">
+              <option value="高">高</option>
+              <option value="中" selected>中</option>
+              <option value="低">低</option>
+            </select>
+          </label>
+          <label class="field">ステータス
+            <select id="task-status">
+              <option value="未着手">未着手</option>
+              <option value="進行中">進行中</option>
+              <option value="完了">完了</option>
+            </select>
+          </label>
+        </div>
+        <label class="field" id="task-progress-field">進捗率
+          <div class="progress-input">
+            <input type="range" id="task-progress" min="0" max="100" step="5" value="0">
+            <span id="task-progress-val" class="progress-val">0%</span>
+          </div>
+        </label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="secondary" data-close="task-modal">キャンセル</button>
+        <button type="button" id="save-task-btn" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
