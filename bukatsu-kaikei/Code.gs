@@ -43,7 +43,8 @@ HEADERS[SHEET_CHARGE]   = ['ID', '日付', '部員ID', '金額', 'メモ'];
 HEADERS[SHEET_PAYMENT]  = ['ID', '日付', '部員ID', 'プール名', '金額', '元'];
 HEADERS[SHEET_EXTERNAL] = ['ID', '日付', '氏名', '所属', '使用プール', '金額', '決済手段', '状態', 'メモ'];
 HEADERS[SHEET_EVENT]    = ['ID', '日付', 'イベント名', '用途', '金額', '精算済'];
-HEADERS[SHEET_EVENT_ATTEND] = ['ID', 'イベントID', '部員ID'];
+// 金額列：個別精算モードで使う1人ごとの徴収額（空欄＝イベントの共通額を使う）
+HEADERS[SHEET_EVENT_ATTEND] = ['ID', 'イベントID', '部員ID', '金額'];
 HEADERS[SHEET_PDFNOTE]  = ['キー', '値']; // PDF下部のメモ（徴収内容/徴収予定/昨月徴収歴）
 
 // 初回のみ投入するサンプルのプール（後から画面で編集可能）
@@ -96,6 +97,11 @@ function setupSheets_() {
   const pay = ss.getSheetByName(SHEET_PAYMENT);
   if (pay && String(pay.getRange(1, 6).getValue()) !== '元') {
     pay.getRange(1, 6).setValue('元').setFontWeight('bold');
+  }
+  // イベント参加に「金額」列（D列）を後付けする。空欄＝イベントの共通額を使う。
+  const evAt = ss.getSheetByName(SHEET_EVENT_ATTEND);
+  if (evAt && String(evAt.getRange(1, 4).getValue()) !== '金額') {
+    evAt.getRange(1, 4).setValue('金額').setFontWeight('bold');
   }
 
   // デフォルトの空シートが残っていれば削除
@@ -651,17 +657,24 @@ function deleteEventParticipants_(eventId) {
   }
 }
 
-// イベント詳細＋全部員の参加フラグ（新規時はデフォルト全員参加）
+// イベント詳細＋全部員の参加フラグ・個別金額（新規時はデフォルト全員参加）
 function getEventDetail(id) {
   setupSheets_();
   const ev = eventRow_(id);
   if (!ev) return null;
-  const partSet = {};
+  const partAmount = {}; // 部員ID -> 個別金額（null=共通額を使う）
   rows_(SHEET_EVENT_ATTEND).forEach(function (r) {
-    if (String(r[1]) === String(id)) partSet[String(r[2])] = true;
+    if (String(r[1]) === String(id)) {
+      const a = Number(r[3]);
+      partAmount[String(r[2])] = (r[3] !== '' && !isNaN(a) && a > 0) ? a : null;
+    }
   });
   const members = getMembers().map(function (m) {
-    return { id: m.id, name: m.name, grade: m.grade, participating: !!partSet[m.id] };
+    return {
+      id: m.id, name: m.name, grade: m.grade,
+      participating: (m.id in partAmount),
+      amount: partAmount[m.id] != null ? partAmount[m.id] : null
+    };
   });
   return {
     id: ev.id, date: ev.date, name: ev.name, purpose: ev.purpose,
@@ -669,43 +682,64 @@ function getEventDetail(id) {
   };
 }
 
-// 参加者を上書き保存（原則全員だが当欠者を外せる）
-function saveEventParticipants(eventId, memberIds) {
+// 参加者を上書き保存。participants = [{id, amount}]（amountはnull可＝共通額を使う）
+function saveEventParticipants(eventId, participants) {
   setupSheets_();
   const cur = eventRow_(eventId);
   if (cur && cur.settled) return { ok: false, msg: 'このイベントは精算済みです。変更するには先に精算を取り消してください。' };
   deleteEventParticipants_(eventId);
-  const ids = memberIds || [];
-  if (ids.length) {
+  const list = participants || [];
+  if (list.length) {
     const sh = sheet_(SHEET_EVENT_ATTEND);
-    const rows = ids.map(function (mid) { return [Utilities.getUuid(), eventId, mid]; });
-    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 3).setValues(rows);
+    const rows = list.map(function (p) {
+      const a = Number(p.amount);
+      return [Utilities.getUuid(), eventId, p.id, (!isNaN(a) && a > 0) ? a : ''];
+    });
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
   }
-  return { ok: true, count: ids.length };
+  return { ok: true, count: list.length };
 }
 
-// イベント精算：参加者のプリペイド残高から一律 金額 を差し引く
+// イベント精算：参加者ごとに（個別金額があればそれ、なければ共通額を）残高から差し引く
 function settleEvent(id) {
   setupSheets_();
   const ev = eventRow_(id);
   if (!ev) return { ok: false, msg: 'イベントが見つかりません。' };
   if (ev.settled) return { ok: false, msg: 'このイベントは既に精算済みです。' };
-  if (!ev.amount || ev.amount <= 0) return { ok: false, msg: '1人あたり金額が設定されていません。' };
 
-  const ids = [];
+  const parts = [];
   rows_(SHEET_EVENT_ATTEND).forEach(function (r) {
-    if (String(r[1]) === String(id)) ids.push(String(r[2]));
+    if (String(r[1]) === String(id)) {
+      const a = Number(r[3]);
+      parts.push({ id: String(r[2]), amount: (r[3] !== '' && !isNaN(a) && a > 0) ? a : null });
+    }
   });
-  if (ids.length === 0) return { ok: false, msg: '参加者が選択されていません。' };
+  if (parts.length === 0) return { ok: false, msg: '参加者が選択されていません。' };
+
+  // 各参加者の徴収額を確定。個別金額がない人は共通額にフォールバックする。
+  const mm = memberMap_();
+  const missing = [];
+  const charges = parts.map(function (p) {
+    const amt = p.amount != null ? p.amount : ev.amount;
+    if (!amt || amt <= 0) missing.push(mm[p.id] ? mm[p.id].name : p.id);
+    return { id: p.id, amount: amt };
+  });
+  if (missing.length) {
+    return { ok: false, msg: '金額が未設定の参加者がいます: ' + missing.join('・') + '\n（個別金額を入力するか、共通の1人あたり金額を設定してください）' };
+  }
 
   const pay = sheet_(SHEET_PAYMENT);
   const src = 'event:' + id;
   const label = 'イベント:' + ev.name;
-  const rows = ids.map(function (mid) { return [Utilities.getUuid(), ev.date, mid, label, ev.amount, src]; });
+  let total = 0;
+  const rows = charges.map(function (c) {
+    total += c.amount;
+    return [Utilities.getUuid(), ev.date, c.id, label, c.amount, src];
+  });
   pay.getRange(pay.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 
   sheet_(SHEET_EVENT).getRange(ev.rowIndex, 6).setValue(true);
-  return { ok: true, count: rows.length, amount: ev.amount };
+  return { ok: true, count: rows.length, amount: ev.amount, total: total };
 }
 
 function unsettleEvent(id) {
@@ -719,7 +753,7 @@ function unsettleEvent(id) {
 // ===== PDF下部メモ（徴収内容/徴収予定/昨月徴収歴）=====
 function getPdfNotes() {
   setupSheets_();
-  const def = { collected: '', planned: '', history: '' };
+  const def = { collected: '', planned: '', history: '', comment: '' };
   rows_(SHEET_PDFNOTE).forEach(function (r) {
     const k = String(r[0]);
     if (k in def) def[k] = String(r[1] || '');
@@ -733,7 +767,8 @@ function savePdfNotes(notes) {
   const rows = [['キー', '値'],
     ['collected', (notes && notes.collected) || ''],
     ['planned',   (notes && notes.planned)   || ''],
-    ['history',   (notes && notes.history)   || '']];
+    ['history',   (notes && notes.history)   || ''],
+    ['comment',   (notes && notes.comment)   || '']];
   sh.clearContents();
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   sh.getRange(1, 1, 1, 2).setFontWeight('bold');
@@ -831,6 +866,13 @@ function generateBalancePdf(year, month, notes) {
       });
       rr++; // ブロック間の余白
     });
+    // コメント（項目名は出さず本文のみ載せる）
+    if (memo.comment) {
+      String(memo.comment).split('\n').forEach(function (line) {
+        sh.getRange(rr, 4, 1, 3).merge().setValue(line).setFontWeight('bold'); rr++;
+      });
+      rr++;
+    }
     lastRow = Math.max(lastRow, rr);
 
     // フォントを丸ゴシック体（ヒラギノ丸ゴに最も近いGoogle提供フォント）に統一

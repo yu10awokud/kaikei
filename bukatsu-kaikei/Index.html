@@ -17,17 +17,22 @@
 
     <!-- タブ -->
     <nav class="tabs">
-      <button class="tab active" data-tab="dashboard">残高</button>
-      <button class="tab" data-tab="practice">練習日</button>
-      <button class="tab" data-tab="charge">チャージ</button>
-      <button class="tab" data-tab="event">イベント</button>
-      <button class="tab" data-tab="external">外部参加</button>
-      <button class="tab" data-tab="attend">出席ランキング</button>
-      <button class="tab" data-tab="master">マスタ</button>
+      <button class="tab active" data-tab="dashboard">💰 残高</button>
+      <button class="tab" data-tab="practice">🏊 練習日</button>
+      <button class="tab" data-tab="charge">💴 チャージ</button>
+      <button class="tab" data-tab="event">🎉 イベント</button>
+      <button class="tab" data-tab="external">🤝 外部参加</button>
+      <button class="tab" data-tab="attend">📈 出席</button>
+      <button class="tab" data-tab="master">⚙️ マスタ</button>
     </nav>
 
     <!-- ===== 残高（ダッシュボード） ===== -->
     <section id="dashboard" class="panel active">
+      <div class="stat-cards">
+        <div class="stat"><div class="stat-label">部員数</div><div class="stat-value" id="sumMembers">—</div></div>
+        <div class="stat"><div class="stat-label">残高合計</div><div class="stat-value" id="sumBalance">—</div></div>
+        <div class="stat"><div class="stat-label">マイナスの人</div><div class="stat-value" id="sumNegative">—</div></div>
+      </div>
       <div class="pdf-bar">
         <button id="pdfBtn" class="primary sm">📄 現在の残高状況をPDFで発行</button>
       </div>
@@ -215,6 +220,15 @@
         <label>イベント名</label><input type="text" id="evName" placeholder="例: 新歓コンパ">
         <label>日付</label><input type="date" id="evDate">
         <label>用途</label><input type="text" id="evPurpose" placeholder="例: 会場費・飲食代">
+      </div>
+
+      <label class="fld-label">精算方式</label>
+      <div class="seg" id="evModeSeg">
+        <button type="button" class="seg-btn active" data-mode="uniform">全員同額</button>
+        <button type="button" class="seg-btn" data-mode="individual">人によって変える</button>
+      </div>
+
+      <div id="evUniformRow" class="form-grid" style="margin-top:10px;">
         <label>1人あたり</label><input type="number" id="evAmount" placeholder="金額（円）">
       </div>
 
@@ -223,6 +237,19 @@
         <button id="evAllBtn" class="ghost sm">全員参加</button>
       </div>
       <div id="evMemberList" class="attend-list"></div>
+
+      <!-- 個別金額（参加者のみ表示） -->
+      <div id="evAmountsWrap" style="display:none;">
+        <div class="attend-head" style="margin-top:16px;">
+          <h4 style="margin:0;font-size:13px;color:#6b7280;">参加者ごとの金額</h4>
+        </div>
+        <div class="bulk-row">
+          <input type="number" id="evBulkAmount" placeholder="共通額（円）">
+          <button type="button" id="evBulkApplyBtn" class="ghost sm">全員に適用</button>
+        </div>
+        <p class="hint" style="margin:6px 0 8px;">「全員に適用」で一括入力してから、違う人だけ直すのが楽です。</p>
+        <div id="evAmountList" class="amount-list"></div>
+      </div>
       <p id="evSettledNote" class="hint" style="display:none;color:#d97706;">精算済みのため編集できません。変更するには精算を取り消してください。</p>
 
       <div class="modal-footer">
@@ -247,6 +274,8 @@
       <textarea id="pdfPlanned" rows="3" placeholder="例: 近医水（エントリー/レセ）&#10;西医体（エントリー/関連費）"></textarea>
       <label class="fld-label">［昨月徴収歴］</label>
       <textarea id="pdfHistory" rows="2" placeholder="例: 藤井2/西川2/山本夏5/…"></textarea>
+      <label class="fld-label">コメント（PDFには項目名なしで本文だけ載ります）</label>
+      <textarea id="pdfComment" rows="2" placeholder="例: お早めのご入金お願いします！"></textarea>
       <div class="modal-footer">
         <span class="grow"></span>
         <button id="pdfCancelBtn">閉じる</button>
