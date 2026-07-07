@@ -609,16 +609,24 @@ function saveEventFlow(settleAfter) {
   if (!f.ev.date) { alert('日付を入力してください'); return; }
   if (settleAfter) {
     if (f.participants.length === 0) { alert('参加者がいません（全員欠席になっています）'); return; }
-    // 例外金額のない参加者が1人でもいれば基本額が必要
+    // 例外金額のない参加者が1人でもいれば基本額が必要（0円は明示入力ならOK・空欄はNG）
     var needBase = f.participants.some(function (p) { return p.amount == null; });
-    if (needBase && (!f.ev.amount || f.ev.amount <= 0)) { alert('1人あたりの金額を入力してください'); return; }
-    var total = 0, excCount = 0;
+    var baseStr = String(document.getElementById('evAmount').value).trim();
+    if (needBase && baseStr === '') {
+      alert('1人あたりの金額を入力してください。\n（一部の人だけ差し引きたい場合は 0 と入力し、対象者を「金額が違う人」に追加してください）');
+      return;
+    }
+    if (needBase && (isNaN(f.ev.amount) || f.ev.amount < 0)) { alert('1人あたりの金額が正しくありません'); return; }
+    var total = 0, excCount = 0, chargedCount = 0;
     f.participants.forEach(function (p) {
-      if (p.amount != null) { total += p.amount; excCount++; }
-      else { total += f.ev.amount; }
+      var a = (p.amount != null) ? p.amount : f.ev.amount;
+      if (p.amount != null) excCount++;
+      if (a > 0) { total += a; chargedCount++; }
     });
-    var msg = '参加者 ' + f.participants.length + '名から合計 ' + yen(total) + ' を差し引きます' +
-      (excCount ? '（うち個別金額 ' + excCount + '名）' : '') + '。よろしいですか？';
+    if (chargedCount === 0) { alert('全員が0円のため、差し引く金額がありません'); return; }
+    var msg = '参加者 ' + f.participants.length + '名のうち ' + chargedCount + '名から合計 ' + yen(total) + ' を差し引きます' +
+      (excCount ? '（個別金額 ' + excCount + '名）' : '') +
+      (chargedCount < f.participants.length ? '。0円の人の残高は変わりません' : '') + '。よろしいですか？';
     if (!confirm(msg)) return;
   }
 

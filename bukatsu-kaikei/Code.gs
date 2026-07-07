@@ -716,30 +716,36 @@ function settleEvent(id) {
   });
   if (parts.length === 0) return { ok: false, msg: '参加者が選択されていません。' };
 
-  // 各参加者の徴収額を確定。個別金額がない人は共通額にフォールバックする。
+  // 各参加者の徴収額を確定。個別金額がない人は共通額（0円も可）にフォールバックする。
   const mm = memberMap_();
   const missing = [];
   const charges = parts.map(function (p) {
     const amt = p.amount != null ? p.amount : ev.amount;
-    if (!amt || amt <= 0) missing.push(mm[p.id] ? mm[p.id].name : p.id);
+    if (amt == null || isNaN(amt) || amt < 0) missing.push(mm[p.id] ? mm[p.id].name : p.id);
     return { id: p.id, amount: amt };
   });
   if (missing.length) {
-    return { ok: false, msg: '金額が未設定の参加者がいます: ' + missing.join('・') + '\n（個別金額を入力するか、共通の1人あたり金額を設定してください）' };
+    return { ok: false, msg: '金額が正しくない参加者がいます: ' + missing.join('・') + '\n（個別金額を入力するか、共通の1人あたり金額（0円も可）を設定してください）' };
+  }
+
+  // 0円の参加者は差し引かない（支払い履歴に0円の行を残さない）
+  const charged = charges.filter(function (c) { return c.amount > 0; });
+  if (charged.length === 0) {
+    return { ok: false, msg: '全員が0円のため、差し引く金額がありません。' };
   }
 
   const pay = sheet_(SHEET_PAYMENT);
   const src = 'event:' + id;
   const label = 'イベント:' + ev.name;
   let total = 0;
-  const rows = charges.map(function (c) {
+  const rows = charged.map(function (c) {
     total += c.amount;
     return [Utilities.getUuid(), ev.date, c.id, label, c.amount, src];
   });
   pay.getRange(pay.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
 
   sheet_(SHEET_EVENT).getRange(ev.rowIndex, 6).setValue(true);
-  return { ok: true, count: rows.length, amount: ev.amount, total: total };
+  return { ok: true, count: rows.length, skippedZero: charges.length - charged.length, amount: ev.amount, total: total };
 }
 
 function unsettleEvent(id) {
