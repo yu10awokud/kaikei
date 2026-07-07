@@ -222,34 +222,29 @@
         <label>用途</label><input type="text" id="evPurpose" placeholder="例: 会場費・飲食代">
       </div>
 
-      <label class="fld-label">精算方式</label>
-      <div class="seg" id="evModeSeg">
-        <button type="button" class="seg-btn active" data-mode="uniform">全員同額</button>
-        <button type="button" class="seg-btn" data-mode="individual">人によって変える</button>
+      <div class="form-grid" style="margin-top:4px;">
+        <label>1人あたり</label><input type="number" id="evAmount" placeholder="基本の金額（円）">
       </div>
 
-      <div id="evUniformRow" class="form-grid" style="margin-top:10px;">
-        <label>1人あたり</label><input type="number" id="evAmount" placeholder="金額（円）">
+      <!-- 参加者：全員参加が前提。欠席者だけを指定する -->
+      <div class="ev-part-head">
+        <span class="fld-label" style="margin:0;">参加者</span>
+        <span id="evPartSummary" class="part-summary">—</span>
       </div>
+      <div class="exc-add" id="evAbsentAddRow">
+        <select id="evAbsentSel"></select>
+        <button type="button" id="evAbsentAddBtn" class="ghost sm">欠席にする</button>
+      </div>
+      <div id="evAbsentChips" class="chips"></div>
 
-      <div class="attend-head">
-        <h4 style="margin:0;font-size:13px;color:#6b7280;">参加者（原則全員・当欠者を外す）</h4>
-        <button id="evAllBtn" class="ghost sm">全員参加</button>
+      <!-- 金額の例外：違う人だけ追加。空なら全員が基本額 -->
+      <label class="fld-label">金額が違う人（いる場合だけ追加）</label>
+      <div class="exc-add" id="evExcAddRow">
+        <select id="evExcSel"></select>
+        <input type="number" id="evExcAmount" placeholder="金額（円）">
+        <button type="button" id="evExcAddBtn" class="ghost sm">追加</button>
       </div>
-      <div id="evMemberList" class="attend-list"></div>
-
-      <!-- 個別金額（参加者のみ表示） -->
-      <div id="evAmountsWrap" style="display:none;">
-        <div class="attend-head" style="margin-top:16px;">
-          <h4 style="margin:0;font-size:13px;color:#6b7280;">参加者ごとの金額</h4>
-        </div>
-        <div class="bulk-row">
-          <input type="number" id="evBulkAmount" placeholder="共通額（円）">
-          <button type="button" id="evBulkApplyBtn" class="ghost sm">全員に適用</button>
-        </div>
-        <p class="hint" style="margin:6px 0 8px;">「全員に適用」で一括入力してから、違う人だけ直すのが楽です。</p>
-        <div id="evAmountList" class="amount-list"></div>
-      </div>
+      <div id="evExcList"></div>
       <p id="evSettledNote" class="hint" style="display:none;color:#d97706;">精算済みのため編集できません。変更するには精算を取り消してください。</p>
 
       <div class="modal-footer">

@@ -154,11 +154,12 @@
     align-items: center; justify-content: center; padding: 16px; z-index: 50;
   }
   .modal-overlay.show { display: flex; }
-  .modal { background: #fff; border-radius: 16px; padding: 18px; width: 100%; max-width: 420px; }
+  .modal { background: #fff; border-radius: 16px; padding: 18px; width: 100%; max-width: 420px;
+    max-height: 85vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .modal h3 { margin: 0 0 14px; }
   .modal-footer { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
   .modal-footer .grow { flex: 1; }
-  .modal-footer button:not(.primary):not(.del-btn) { background: #e5e7eb; border: none; padding: 9px 16px; border-radius: 8px; cursor: pointer; }
+  .modal-footer button:not(.primary):not(.del-btn):not(.warn):not(.ghost) { background: #e5e7eb; border: none; padding: 9px 16px; border-radius: 8px; cursor: pointer; }
 
   .loading { display: none; position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
     background: #111; color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 13px; z-index: 100; }
@@ -170,18 +171,18 @@
   .stat-label { font-size: 11px; color: var(--muted); }
   .stat-value { font-size: 18px; font-weight: 700; margin-top: 3px; }
 
-  /* セグメント切替（イベントの精算方式） */
-  .seg { display: flex; gap: 4px; background: #eef1f5; border-radius: 10px; padding: 4px; }
-  .seg-btn { flex: 1; border: none; background: transparent; color: var(--muted);
-    padding: 9px 8px; border-radius: 8px; font-size: 13px; cursor: pointer; transition: background .12s, color .12s; }
-  .seg-btn.active { background: #fff; color: var(--primary); font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
-
-  /* 個別金額リスト */
-  .bulk-row { display: flex; gap: 8px; margin-top: 8px; }
-  .bulk-row input { flex: 1; }
-  .amount-list { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; }
-  .amount-item { display: flex; align-items: center; gap: 10px; background: var(--card);
-    border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
-  .amount-item .amt-name { flex: 1; font-size: 14px; }
-  .amount-item .amt-input { width: 110px; text-align: right; }
+  /* イベント：例外方式（欠席者・金額が違う人だけを指定） */
+  .ev-part-head { display: flex; align-items: center; justify-content: space-between; margin: 14px 0 6px; }
+  .part-summary { font-size: 13px; font-weight: 700; color: var(--primary); }
+  .exc-add { display: flex; gap: 6px; }
+  .exc-add select { flex: 1; min-width: 0; }
+  .exc-add input { width: 96px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+  .chip { background: #fee2e2; color: #991b1b; border-radius: 999px; padding: 5px 6px 5px 12px;
+    font-size: 13px; display: inline-flex; align-items: center; }
+  .chip-x { border: none; background: none; color: inherit; font-size: 16px; cursor: pointer; padding: 0 7px; line-height: 1; }
+  .hint-inline { font-size: 12px; color: var(--muted); }
+  .exc-row { display: flex; align-items: center; gap: 8px; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin-top: 6px; font-size: 14px; }
+  .exc-row .grow { flex: 1; }
 </style>

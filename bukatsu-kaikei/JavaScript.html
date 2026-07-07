@@ -7,7 +7,6 @@ var state = {
   pools: [],
   day: null,          // 練習日画面の現在データ
   eventDetail: null,  // イベントモーダルの現在データ
-  eventMode: 'uniform', // 'uniform'=全員同額 / 'individual'=人によって変える
   editingMemberId: null,
   editingPoolName: null,
   editingEventId: null
@@ -497,25 +496,19 @@ function openEventModal(id) {
       };
     }
     state.eventDetail = d;
-    // 個別金額が1人でも入っていれば「人によって変える」モードで開く
-    state.eventMode = d.members.some(function (m) { return m.participating && m.amount != null; }) ? 'individual' : 'uniform';
 
     document.getElementById('eventModalTitle').textContent = d.id ? 'イベントを編集' : 'イベントを作成';
     document.getElementById('evName').value = d.name;
     document.getElementById('evDate').value = d.date;
     document.getElementById('evPurpose').value = d.purpose;
-    document.getElementById('evAmount').value = d.amount;
-    document.getElementById('evBulkAmount').value = '';
-    applyEventMode();
-    renderEventMembers(d);
-    renderEventAmounts();
+    document.getElementById('evAmount').value = d.amount || '';
+    renderEventPeople();
 
     var settled = d.settled;
     document.getElementById('evSettledNote').style.display = settled ? '' : 'none';
-    ['evName', 'evDate', 'evPurpose', 'evAmount', 'evBulkAmount'].forEach(function (fid) {
+    ['evName', 'evDate', 'evPurpose', 'evAmount'].forEach(function (fid) {
       document.getElementById(fid).disabled = settled;
     });
-    document.getElementById('evAllBtn').style.display = settled ? 'none' : '';
     document.getElementById('evSaveBtn').style.display = settled ? 'none' : '';
     document.getElementById('evSettleBtn').style.display = settled ? 'none' : '';
     document.getElementById('evUnsettleBtn').style.display = settled ? '' : 'none';
@@ -525,89 +518,85 @@ function openEventModal(id) {
   }).catch(function (err) { loading(false); alert('読み込みエラー: ' + err.message); });
 }
 
-// 精算方式の切替をUIに反映する
-function applyEventMode() {
-  var individual = state.eventMode === 'individual';
-  document.querySelectorAll('#evModeSeg .seg-btn').forEach(function (b) {
-    b.classList.toggle('active', b.dataset.mode === state.eventMode);
-  });
-  document.getElementById('evUniformRow').style.display = individual ? 'none' : '';
-  document.getElementById('evAmountsWrap').style.display = individual ? '' : 'none';
-}
-
-function renderEventMembers(d) {
-  var list = document.getElementById('evMemberList');
-  list.innerHTML = d.members.map(function (m) {
-    return '<div class="attend-item' + (m.participating ? ' present' : '') + '" data-id="' + m.id + '">' +
-      '<span>' + esc(m.name) + ' <span class="sub">' + esc(m.grade) + '</span></span>' +
-      '<span class="check">✓</span></div>';
-  }).join('') || '<p class="hint">部員が登録されていません。</p>';
-  if (!d.settled) {
-    list.querySelectorAll('.attend-item').forEach(function (el) {
-      el.addEventListener('click', function () {
-        el.classList.toggle('present');
-        // 参加状態をstateにも反映し、個別金額リストを追従させる
-        var m = findEventMember_(el.dataset.id);
-        if (m) m.participating = el.classList.contains('present');
-        renderEventAmounts();
-      });
-    });
-  }
-}
-
 function findEventMember_(id) {
   var hit = null;
   (state.eventDetail.members || []).forEach(function (m) { if (m.id === id) hit = m; });
   return hit;
 }
 
-// 個別金額リスト：参加中の部員だけを表示する（スマホで全員分並べない）
-function renderEventAmounts() {
-  var box = document.getElementById('evAmountList');
+// 参加者UIの描画：全員参加が前提で、「欠席者」と「金額が違う人」だけを例外として表示する。
+// 部員全員をリスト表示しないので、人数が多くても画面が伸びない。
+function renderEventPeople() {
   var d = state.eventDetail;
-  if (!d) { box.innerHTML = ''; return; }
+  if (!d) return;
+  var settled = d.settled;
   var parts = d.members.filter(function (m) { return m.participating; });
-  if (parts.length === 0) {
-    box.innerHTML = '<p class="hint">参加者が選ばれていません。上のリストでタップして選んでください。</p>';
-    return;
-  }
-  box.innerHTML = parts.map(function (m) {
-    var v = (m.amount != null) ? m.amount : '';
-    return '<div class="amount-item">' +
-      '<span class="amt-name">' + esc(m.name) + '</span>' +
-      '<input type="number" class="amt-input" data-id="' + m.id + '" value="' + v + '" placeholder="金額（円）"' + (d.settled ? ' disabled' : '') + '>' +
+  var absent = d.members.filter(function (m) { return !m.participating; });
+  var exc = parts.filter(function (m) { return m.amount != null; });
+
+  // サマリー（参加◯名・欠席◯名）
+  var s = parts.length + '名参加';
+  s += absent.length ? '・欠席' + absent.length + '名' : '（全員）';
+  document.getElementById('evPartSummary').textContent = s;
+
+  // 欠席者の追加プルダウン（参加中の部員だけ出す）
+  var sel = document.getElementById('evAbsentSel');
+  sel.innerHTML = '<option value="">欠席者を選ぶ</option>' + parts.map(function (m) {
+    return '<option value="' + m.id + '">' + esc(m.name) + '</option>';
+  }).join('');
+
+  // 欠席者チップ（×で参加に戻す）
+  document.getElementById('evAbsentChips').innerHTML = absent.map(function (m) {
+    return '<span class="chip">' + esc(m.name) +
+      (settled ? '' : '<button type="button" class="chip-x" data-id="' + m.id + '">×</button>') +
+      '</span>';
+  }).join('') || '<span class="hint-inline">欠席者なし（全員参加）</span>';
+
+  // 金額例外の追加プルダウン（参加中かつ例外未設定の部員だけ出す）
+  var es = document.getElementById('evExcSel');
+  es.innerHTML = '<option value="">部員を選ぶ</option>' + parts.filter(function (m) { return m.amount == null; })
+    .map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('');
+
+  // 金額例外リスト（×で基本額に戻す）
+  document.getElementById('evExcList').innerHTML = exc.map(function (m) {
+    return '<div class="exc-row"><span class="grow">' + esc(m.name) + '</span><b>' + yen(m.amount) + '</b>' +
+      (settled ? '' : '<button type="button" class="chip-x" data-id="' + m.id + '">×</button>') +
       '</div>';
   }).join('');
-  // 入力をstateへ即時反映（再描画で消えないように）
-  box.querySelectorAll('.amt-input').forEach(function (inp) {
-    inp.addEventListener('input', function () {
-      var m = findEventMember_(inp.dataset.id);
-      if (m) {
-        var v = parseFloat(inp.value);
-        m.amount = (!isNaN(v) && v > 0) ? v : null;
-      }
+
+  // ×ボタンのイベント
+  document.querySelectorAll('#evAbsentChips .chip-x').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var m = findEventMember_(b.dataset.id);
+      if (m) m.participating = true;
+      renderEventPeople();
     });
   });
+  document.querySelectorAll('#evExcList .chip-x').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var m = findEventMember_(b.dataset.id);
+      if (m) m.amount = null;
+      renderEventPeople();
+    });
+  });
+
+  // 精算済みなら追加操作を隠す
+  document.getElementById('evAbsentAddRow').style.display = settled ? 'none' : '';
+  document.getElementById('evExcAddRow').style.display = settled ? 'none' : '';
 }
 
 function collectEventForm() {
-  var individual = state.eventMode === 'individual';
   var participants = [];
-  document.querySelectorAll('#evMemberList .attend-item.present').forEach(function (el) {
-    var m = findEventMember_(el.dataset.id);
-    participants.push({
-      id: el.dataset.id,
-      amount: (individual && m && m.amount != null) ? m.amount : null
-    });
+  (state.eventDetail.members || []).forEach(function (m) {
+    if (m.participating) participants.push({ id: m.id, amount: m.amount != null ? m.amount : null });
   });
   return {
-    individual: individual,
     ev: {
       id: state.editingEventId,
       name: document.getElementById('evName').value.trim(),
       date: document.getElementById('evDate').value,
       purpose: document.getElementById('evPurpose').value.trim(),
-      amount: individual ? 0 : parseFloat(document.getElementById('evAmount').value)
+      amount: parseFloat(document.getElementById('evAmount').value) || 0
     },
     participants: participants
   };
@@ -619,23 +608,18 @@ function saveEventFlow(settleAfter) {
   if (!f.ev.name) { alert('イベント名を入力してください'); return; }
   if (!f.ev.date) { alert('日付を入力してください'); return; }
   if (settleAfter) {
-    if (f.participants.length === 0) { alert('参加者を選んでください'); return; }
-    if (f.individual) {
-      var noAmount = [];
-      f.participants.forEach(function (p) {
-        if (!p.amount || p.amount <= 0) {
-          var m = findEventMember_(p.id);
-          noAmount.push(m ? m.name : p.id);
-        }
-      });
-      if (noAmount.length) { alert('金額が未入力の参加者がいます:\n' + noAmount.join('・')); return; }
-      var total = 0;
-      f.participants.forEach(function (p) { total += p.amount; });
-      if (!confirm('参加者 ' + f.participants.length + '名から個別金額（合計 ' + yen(total) + '）を差し引きます。よろしいですか？')) return;
-    } else {
-      if (!f.ev.amount || f.ev.amount <= 0) { alert('1人あたり金額を入力してください'); return; }
-      if (!confirm('参加者 ' + f.participants.length + '名の残高から、1人 ' + yen(f.ev.amount) + ' を差し引きます。よろしいですか？')) return;
-    }
+    if (f.participants.length === 0) { alert('参加者がいません（全員欠席になっています）'); return; }
+    // 例外金額のない参加者が1人でもいれば基本額が必要
+    var needBase = f.participants.some(function (p) { return p.amount == null; });
+    if (needBase && (!f.ev.amount || f.ev.amount <= 0)) { alert('1人あたりの金額を入力してください'); return; }
+    var total = 0, excCount = 0;
+    f.participants.forEach(function (p) {
+      if (p.amount != null) { total += p.amount; excCount++; }
+      else { total += f.ev.amount; }
+    });
+    var msg = '参加者 ' + f.participants.length + '名から合計 ' + yen(total) + ' を差し引きます' +
+      (excCount ? '（うち個別金額 ' + excCount + '名）' : '') + '。よろしいですか？';
+    if (!confirm(msg)) return;
   }
 
   loading(true);
@@ -662,31 +646,24 @@ function bindEventModal() {
   document.getElementById('evCancelBtn').addEventListener('click', function () {
     document.getElementById('eventModal').classList.remove('show');
   });
-  document.getElementById('evAllBtn').addEventListener('click', function () {
-    document.querySelectorAll('#evMemberList .attend-item').forEach(function (el) {
-      el.classList.add('present');
-      var m = findEventMember_(el.dataset.id);
-      if (m) m.participating = true;
-    });
-    renderEventAmounts();
+  // 欠席者を追加（参加から外す）
+  document.getElementById('evAbsentAddBtn').addEventListener('click', function () {
+    var id = document.getElementById('evAbsentSel').value;
+    if (!id) { alert('欠席にする部員を選んでください'); return; }
+    var m = findEventMember_(id);
+    if (m) { m.participating = false; m.amount = null; }
+    renderEventPeople();
   });
-  // 精算方式の切替
-  document.querySelectorAll('#evModeSeg .seg-btn').forEach(function (b) {
-    b.addEventListener('click', function () {
-      if (state.eventDetail && state.eventDetail.settled) return;
-      state.eventMode = b.dataset.mode;
-      applyEventMode();
-      renderEventAmounts();
-    });
-  });
-  // 共通額を参加者全員の個別金額に流し込む
-  document.getElementById('evBulkApplyBtn').addEventListener('click', function () {
-    var v = parseFloat(document.getElementById('evBulkAmount').value);
-    if (!v || v <= 0) { alert('共通額を入力してください'); return; }
-    (state.eventDetail.members || []).forEach(function (m) {
-      if (m.participating) m.amount = v;
-    });
-    renderEventAmounts();
+  // 金額が違う人を追加
+  document.getElementById('evExcAddBtn').addEventListener('click', function () {
+    var id = document.getElementById('evExcSel').value;
+    var v = parseFloat(document.getElementById('evExcAmount').value);
+    if (!id) { alert('部員を選んでください'); return; }
+    if (!v || v <= 0) { alert('金額を入力してください'); return; }
+    var m = findEventMember_(id);
+    if (m) m.amount = v;
+    document.getElementById('evExcAmount').value = '';
+    renderEventPeople();
   });
   document.getElementById('evSaveBtn').addEventListener('click', function () { saveEventFlow(false); });
   document.getElementById('evSettleBtn').addEventListener('click', function () { saveEventFlow(true); });
