@@ -1,0 +1,486 @@
+<script>
+/* =========================================================
+   部活カレンダー フロントロジック
+   - サーバー(Code.gs)とは google.script.run で通信
+   - カレンダー描画・モーダル操作・予定の展開をここで行う
+
+   ざっくり構成:
+     [1] 状態と定数
+     [2] 日付ユーティリティ
+     [3] データ読み込み
+     [4] カレンダー描画（帯バー / 練習マス）
+     [5] モーダル（追加・編集・削除）
+     [6] イベント登録・初期化
+   ========================================================= */
+
+/* ---------- [1] 状態と定数 ---------- */
+const PRESET_COLORS = ['#4f86ff', '#ff6b6b', '#f6a609', '#38b48b', '#9b6dff', '#8a8a8a'];
+
+// 帯バーの寸法（Stylesheet の --bar-h / --bar-gap と合わせる）
+const BAR_H = 20, BAR_GAP = 3, BAR_TOP = 20;
+
+const state = {
+  year: 0,
+  month: 0,          // 1〜12
+  schedules: [],     // サーバーから取得した全予定
+  holidays: {},      // { 'yyyy-MM-dd': '祝日名' }
+  editing: null      // 編集中の予定id（新規なら null）
+};
+
+/* ---------- [2] 日付ユーティリティ ---------- */
+function pad(n) { return String(n).padStart(2, '0'); }
+function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function daysBetween(a, b) { return Math.round((parseYmd(ymd(b)) - parseYmd(ymd(a))) / 86400000); }
+
+/* ---------- [3] データ読み込み ---------- */
+function showLoading(on) { document.getElementById('loading').classList.toggle('show', on); }
+
+function load() {
+  showLoading(true);
+  // 予定と祝日を取得してから描画
+  google.script.run
+    .withSuccessHandler(function (schedules) {
+      state.schedules = schedules || [];
+      google.script.run
+        .withSuccessHandler(function (holidays) {
+          state.holidays = holidays || {};
+          showLoading(false);
+          render();
+        })
+        .withFailureHandler(function () { state.holidays = {}; showLoading(false); render(); })
+        .getHolidays(state.year, state.month);
+    })
+    .withFailureHandler(function (err) {
+      showLoading(false);
+      alert('読み込みに失敗しました: ' + err.message);
+    })
+    .getSchedules();
+}
+
+/* ---------- [4] カレンダー描画 ---------- */
+
+/** 予定 s が dateStr（'yyyy-MM-dd'）に出現するか判定 */
+function occursOn(s, dateStr) {
+  const date = parseYmd(dateStr);
+  if (s.recurrence === 'weekly') {
+    return date.getDay() === Number(s.weekday) && date >= parseYmd(s.startDate);
+  }
+  if (s.type === 'event') {
+    return dateStr >= s.startDate && dateStr <= (s.endDate || s.startDate);
+  }
+  // practice / single
+  return dateStr === s.startDate;
+}
+
+/** その日に出現する予定一覧（モーダルの既存リスト用） */
+function schedulesOnDate(dateStr) {
+  return state.schedules.filter(s => occursOn(s, dateStr));
+}
+
+function render() {
+  document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
+  const cal = document.getElementById('calendar');
+  cal.innerHTML = '';
+
+  // 月の最初の日曜（グリッド開始日）と、6週間ぶんの範囲
+  const first = new Date(state.year, state.month - 1, 1);
+  const gridStart = addDays(first, -first.getDay());
+  const gridStartStr = ymd(gridStart);
+  const gridEndStr = ymd(addDays(gridStart, 41));
+  const todayStr = ymd(new Date());
+
+  // ---- 帯バー用に「イベントの表示インスタンス」を作る ----
+  // （単発の複数日イベント＋毎週イベントを、表示範囲に展開）
+  const eventInstances = [];
+  state.schedules.forEach(s => {
+    if (s.type !== 'event') return;
+    if (s.recurrence === 'weekly') {
+      // 毎週イベント：該当曜日ごとに1日バーを置く
+      for (let i = 0; i < 42; i++) {
+        const d = addDays(gridStart, i);
+        if (d.getDay() === Number(s.weekday) && d >= parseYmd(s.startDate)) {
+          eventInstances.push({ s, start: ymd(d), end: ymd(d) });
+        }
+      }
+    } else {
+      // 単発イベント：表示範囲にクリップ
+      const st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
+      const en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
+      if (st <= gridEndStr && en >= gridStartStr && st <= en) {
+        eventInstances.push({ s, start: st, end: en, realStart: s.startDate, realEnd: (s.endDate || s.startDate) });
+      }
+    }
+  });
+
+  // 6週間を描画
+  for (let w = 0; w < 6; w++) {
+    const weekStart = addDays(gridStart, w * 7);
+    const weekStartStr = ymd(weekStart);
+    const weekEndStr = ymd(addDays(weekStart, 6));
+
+    // この週にかかるイベントを「週内セグメント」に切り出し、レーン（段）を割り当てる
+    const segments = [];
+    eventInstances.forEach(inst => {
+      if (inst.end < weekStartStr || inst.start > weekEndStr) return;
+      const segStart = inst.start < weekStartStr ? weekStartStr : inst.start;
+      const segEnd = inst.end > weekEndStr ? weekEndStr : inst.end;
+      segments.push({
+        inst,
+        startCol: daysBetween(weekStart, parseYmd(segStart)),
+        endCol: daysBetween(weekStart, parseYmd(segEnd)),
+        midStart: (inst.realStart || inst.start) < segStart,
+        midEnd: (inst.realEnd || inst.end) > segEnd
+      });
+    });
+    const laneCount = assignLanes(segments); // segments[i].lane が決まる
+
+    // 週コンテナ
+    const weekEl = document.createElement('div');
+    weekEl.className = 'week';
+
+    // 日付マスのグリッド
+    const grid = document.createElement('div');
+    grid.className = 'week-grid';
+    const barsSpaceH = laneCount * (BAR_H + BAR_GAP); // バーぶんの予約高さ
+
+    for (let c = 0; c < 7; c++) {
+      const d = addDays(weekStart, c);
+      const dStr = ymd(d);
+      const dow = d.getDay();
+      const inMonth = (d.getMonth() + 1) === state.month;
+
+      const dayEl = document.createElement('div');
+      dayEl.className = 'day';
+      if (!inMonth) dayEl.classList.add('other-month');
+      if (dow === 0) dayEl.classList.add('sun');
+      if (dow === 6) dayEl.classList.add('sat');
+      if (state.holidays[dStr]) dayEl.classList.add('holiday');
+      if (dStr === todayStr) dayEl.classList.add('today');
+      dayEl.dataset.date = dStr;
+
+      // 日付番号（＋祝日名）
+      const num = document.createElement('div');
+      num.className = 'day-num';
+      num.textContent = d.getDate();
+      dayEl.appendChild(num);
+      if (state.holidays[dStr]) {
+        const hn = document.createElement('div');
+        hn.className = 'holiday-name';
+        hn.textContent = state.holidays[dStr];
+        dayEl.appendChild(hn);
+      }
+
+      // 帯バーぶんの予約スペース
+      const space = document.createElement('div');
+      space.className = 'bars-space';
+      space.style.height = barsSpaceH + 'px';
+      dayEl.appendChild(space);
+
+      // 練習マス（場所 / ブログ担当 / 時間）
+      schedulesOnDate(dStr).filter(s => s.type === 'practice').forEach(s => {
+        dayEl.appendChild(buildPractice(s));
+      });
+
+      // マスの空きをクリック → その日に新規追加
+      dayEl.addEventListener('click', function (e) {
+        if (e.target.closest('.practice') || e.target.closest('.bar')) return;
+        openModalForAdd(dStr);
+      });
+
+      grid.appendChild(dayEl);
+    }
+    weekEl.appendChild(grid);
+
+    // 帯バーの重ね描画レイヤー
+    const barsLayer = document.createElement('div');
+    barsLayer.className = 'week-bars';
+    segments.forEach(seg => {
+      const span = seg.endCol - seg.startCol + 1;
+      const bar = document.createElement('div');
+      bar.className = 'bar' + (seg.midStart ? ' mid-start' : '') + (seg.midEnd ? ' mid-end' : '');
+      bar.style.left = 'calc(' + (seg.startCol / 7 * 100) + '% + 2px)';
+      bar.style.width = 'calc(' + (span / 7 * 100) + '% - 4px)';
+      bar.style.top = (seg.lane * (BAR_H + BAR_GAP)) + 'px';
+      bar.style.background = seg.inst.s.color;
+      bar.textContent = seg.inst.s.title || '(無題)';
+      bar.addEventListener('click', function (e) {
+        e.stopPropagation();
+        openModalForEdit(seg.inst.s);
+      });
+      barsLayer.appendChild(bar);
+    });
+    weekEl.appendChild(barsLayer);
+
+    cal.appendChild(weekEl);
+  }
+}
+
+/** 練習マス（3項目レイアウト）のDOMを作る */
+function buildPractice(s) {
+  const el = document.createElement('div');
+  el.className = 'practice';
+  // 薄い背景＋枠に予定色を反映
+  el.style.background = hexToRgba(s.color, 0.14);
+  el.style.borderColor = hexToRgba(s.color, 0.5);
+
+  const place = document.createElement('div');
+  place.className = 'p-place';
+  place.textContent = s.place || '練習';
+  el.appendChild(place);
+
+  if (s.blogUser) {
+    const blog = document.createElement('div');
+    blog.className = 'p-blog';
+    blog.textContent = s.blogUser;
+    el.appendChild(blog);
+  }
+  if (s.time) {
+    const time = document.createElement('div');
+    time.className = 'p-time';
+    time.textContent = s.time;
+    el.appendChild(time);
+  }
+
+  el.addEventListener('click', function (e) {
+    e.stopPropagation();
+    openModalForEdit(s);
+  });
+  return el;
+}
+
+/** 週内セグメントにレーン（段）を割り当て、使用レーン数を返す */
+function assignLanes(segments) {
+  segments.sort((a, b) => a.startCol - b.startCol);
+  const laneEnds = []; // laneEnds[lane] = そのレーンで使用済みの最終col
+  segments.forEach(seg => {
+    let lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane] >= seg.startCol) lane++;
+    seg.lane = lane;
+    laneEnds[lane] = seg.endCol;
+  });
+  return laneEnds.length;
+}
+
+/** '#rrggbb' → 'rgba(r,g,b,a)' */
+function hexToRgba(hex, a) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  if (!m) return 'rgba(79,134,255,' + a + ')';
+  return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+}
+
+/* ---------- [5] モーダル（追加・編集・削除） ---------- */
+const modal = {
+  overlay: null, title: null, type: 'practice', rec: 'none', color: PRESET_COLORS[0]
+};
+
+/** 新規追加でモーダルを開く */
+function openModalForAdd(dateStr) {
+  state.editing = null;
+  document.getElementById('modalTitle').textContent = '予定を追加';
+  document.getElementById('deleteBtn').style.display = 'none';
+
+  setType('practice');
+  setRec('none');
+  setColor(PRESET_COLORS[0]);
+  document.getElementById('fTitle').value = '';
+  document.getElementById('fPlace').value = '';
+  document.getElementById('fBlog').value = '';
+  document.getElementById('fTime').value = '';
+  document.getElementById('fStart').value = dateStr;
+  document.getElementById('fEnd').value = dateStr;
+
+  renderExistingList(dateStr);
+  showModal(true);
+}
+
+/** 既存予定の編集でモーダルを開く */
+function openModalForEdit(s) {
+  state.editing = s.id;
+  document.getElementById('modalTitle').textContent = '予定を編集';
+  document.getElementById('deleteBtn').style.display = 'inline-block';
+
+  setType(s.type);
+  setRec(s.recurrence);
+  setColor(s.color);
+  document.getElementById('fTitle').value = s.title || '';
+  document.getElementById('fPlace').value = s.place || '';
+  document.getElementById('fBlog').value = s.blogUser || '';
+  document.getElementById('fTime').value = s.time || '';
+  document.getElementById('fStart').value = s.startDate;
+  document.getElementById('fEnd').value = s.endDate || s.startDate;
+
+  document.getElementById('existingList').innerHTML = '';
+  showModal(true);
+}
+
+/** その日の既存予定を一覧表示（クリックで編集に切替） */
+function renderExistingList(dateStr) {
+  const box = document.getElementById('existingList');
+  box.innerHTML = '';
+  const items = schedulesOnDate(dateStr);
+  items.forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'existing-item';
+    const sw = document.createElement('span');
+    sw.className = 'existing-swatch';
+    sw.style.background = s.color;
+    row.appendChild(sw);
+    const label = document.createElement('span');
+    const kind = s.type === 'event' ? 'イベント' : '練習';
+    const name = s.type === 'event' ? (s.title || '(無題)') : (s.place || '練習');
+    label.textContent = kind + '：' + name + (s.recurrence === 'weekly' ? '（毎週）' : '');
+    row.appendChild(label);
+    row.addEventListener('click', function () { openModalForEdit(s); });
+    box.appendChild(row);
+  });
+}
+
+function showModal(on) {
+  document.getElementById('modalOverlay').classList.toggle('show', on);
+}
+
+/** 種別（練習/イベント）を切替え、フォームの表示を調整 */
+function setType(type) {
+  modal.type = type;
+  document.querySelectorAll('#typeSeg .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.type === type);
+  });
+  document.getElementById('eventFields').style.display = type === 'event' ? 'block' : 'none';
+  document.getElementById('practiceFields').style.display = type === 'practice' ? 'block' : 'none';
+  updateDateFields();
+}
+
+/** 繰り返し（単発/毎週）を切替え */
+function setRec(rec) {
+  modal.rec = rec;
+  document.querySelectorAll('#recSeg .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.rec === rec);
+  });
+  updateDateFields();
+}
+
+/** 種別・繰り返しに応じて終了日欄やラベルを出し分け */
+function updateDateFields() {
+  const weekly = modal.rec === 'weekly';
+  // 終了日は「単発イベント」のときだけ意味を持つ
+  const showEnd = (modal.type === 'event' && !weekly);
+  document.getElementById('endWrap').style.display = showEnd ? 'block' : 'none';
+  document.getElementById('weeklyHint').style.display = weekly ? 'block' : 'none';
+  document.getElementById('startLabel').textContent = weekly ? '開始日（この曜日で毎週）' : '日付';
+}
+
+/** 色を選択（プリセット＆カラーピッカーを同期） */
+function setColor(color) {
+  modal.color = color;
+  document.getElementById('fColor').value = color;
+  document.querySelectorAll('#presetColors .preset').forEach(p => {
+    p.classList.toggle('selected', p.dataset.color.toLowerCase() === color.toLowerCase());
+  });
+}
+
+/** 保存 */
+function saveModal() {
+  const start = document.getElementById('fStart').value;
+  if (!start) { alert('日付を入力してください'); return; }
+
+  let end = start;
+  if (modal.type === 'event' && modal.rec === 'none') {
+    end = document.getElementById('fEnd').value || start;
+    if (end < start) { alert('終了日は開始日以降にしてください'); return; }
+  }
+
+  const rec = {
+    id: state.editing || '',
+    type: modal.type,
+    title: document.getElementById('fTitle').value,
+    place: document.getElementById('fPlace').value,
+    blogUser: document.getElementById('fBlog').value,
+    time: document.getElementById('fTime').value,
+    color: modal.color,
+    recurrence: modal.rec,
+    startDate: start,
+    endDate: end
+  };
+
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function () { showModal(false); load(); })
+    .withFailureHandler(function (err) { showLoading(false); alert('保存に失敗しました: ' + err.message); })
+    .saveSchedule(rec);
+}
+
+/** 削除 */
+function deleteCurrent() {
+  if (!state.editing) return;
+  if (!confirm('この予定を削除しますか？')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function () { showModal(false); load(); })
+    .withFailureHandler(function (err) { showLoading(false); alert('削除に失敗しました: ' + err.message); })
+    .deleteSchedule(state.editing);
+}
+
+/* ---------- [6] イベント登録・初期化 ---------- */
+function changeMonth(delta) {
+  let m = state.month + delta;
+  let y = state.year;
+  if (m < 1) { m = 12; y--; }
+  if (m > 12) { m = 1; y++; }
+  state.year = y; state.month = m;
+  load();
+}
+
+function initColorPresets() {
+  const box = document.getElementById('presetColors');
+  PRESET_COLORS.forEach(c => {
+    const p = document.createElement('div');
+    p.className = 'preset';
+    p.style.background = c;
+    p.dataset.color = c;
+    p.addEventListener('click', function () { setColor(c); });
+    box.appendChild(p);
+  });
+}
+
+function bindEvents() {
+  document.getElementById('prevMonth').addEventListener('click', () => changeMonth(-1));
+  document.getElementById('nextMonth').addEventListener('click', () => changeMonth(1));
+  document.getElementById('todayBtn').addEventListener('click', function () {
+    const now = new Date();
+    state.year = now.getFullYear(); state.month = now.getMonth() + 1;
+    load();
+  });
+  document.getElementById('pdfBtn').addEventListener('click', function () { window.print(); });
+
+  // モーダル操作
+  document.getElementById('modalCloseBtn').addEventListener('click', () => showModal(false));
+  document.getElementById('cancelBtn').addEventListener('click', () => showModal(false));
+  document.getElementById('saveBtn').addEventListener('click', saveModal);
+  document.getElementById('deleteBtn').addEventListener('click', deleteCurrent);
+  document.getElementById('modalOverlay').addEventListener('click', function (e) {
+    if (e.target === this) showModal(false); // 背景クリックで閉じる
+  });
+
+  // 種別・繰り返しの切替
+  document.querySelectorAll('#typeSeg .seg-btn').forEach(b => {
+    b.addEventListener('click', () => setType(b.dataset.type));
+  });
+  document.querySelectorAll('#recSeg .seg-btn').forEach(b => {
+    b.addEventListener('click', () => setRec(b.dataset.rec));
+  });
+  // カラーピッカー手動変更
+  document.getElementById('fColor').addEventListener('input', function () { setColor(this.value); });
+}
+
+// 起動
+(function start() {
+  const now = new Date();
+  state.year = now.getFullYear();
+  state.month = now.getMonth() + 1;
+  initColorPresets();
+  bindEvents();
+  load();
+})();
+</script>

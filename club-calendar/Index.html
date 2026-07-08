@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <div id="app">
+    <!-- ヘッダー：月移動と各種ボタン -->
+    <header class="app-header">
+      <h1>部活カレンダー</h1>
+      <div class="header-tools">
+        <div class="month-nav">
+          <button id="prevMonth" class="nav-btn" aria-label="前の月">‹</button>
+          <span id="currentMonthLabel">----年--月</span>
+          <button id="nextMonth" class="nav-btn" aria-label="次の月">›</button>
+        </div>
+        <div class="header-actions">
+          <button id="todayBtn" class="ghost-btn">今日</button>
+          <!-- ボタン一つでPDF出力（印刷ダイアログから「PDFに保存」を選ぶ想定） -->
+          <button id="pdfBtn" class="ghost-btn">PDF出力</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- 曜日見出し（日曜始まり） -->
+    <div class="weekdays">
+      <span class="sun">日</span><span>月</span><span>火</span><span>水</span>
+      <span>木</span><span>金</span><span class="sat">土</span>
+    </div>
+
+    <!-- カレンダー本体（JSで週ごとに描画） -->
+    <div id="calendar" class="calendar"></div>
+
+    <!-- 凡例 -->
+    <div class="legend">
+      <span class="legend-item"><span class="lg-bar"></span>イベント（帯）</span>
+      <span class="legend-item"><span class="lg-practice"></span>練習（場所・担当・時間）</span>
+    </div>
+  </div>
+
+  <!-- ===== 予定 追加/編集モーダル ===== -->
+  <div id="modalOverlay" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="modalTitle">予定を追加</h3>
+        <button id="modalCloseBtn" class="icon-btn" aria-label="閉じる">×</button>
+      </div>
+
+      <!-- その日の既存予定一覧（クリックで編集） -->
+      <div id="existingList" class="existing-list"></div>
+
+      <!-- 入力フォーム -->
+      <div class="form">
+        <!-- 種別 -->
+        <div class="field">
+          <label>種別</label>
+          <div class="seg" id="typeSeg">
+            <button type="button" class="seg-btn active" data-type="practice">練習</button>
+            <button type="button" class="seg-btn" data-type="event">イベント</button>
+          </div>
+        </div>
+
+        <!-- ▼ イベント用フィールド（タイトル＋期間） -->
+        <div id="eventFields">
+          <div class="field">
+            <label>タイトル（例：夏合宿 / 県大会）</label>
+            <input type="text" id="fTitle" placeholder="予定名">
+          </div>
+        </div>
+
+        <!-- ▼ 練習用フィールド（場所 / ブログ担当 / 時間） -->
+        <div id="practiceFields">
+          <div class="field">
+            <label>場所（例：アクアリーナ）</label>
+            <input type="text" id="fPlace" placeholder="場所">
+          </div>
+          <div class="field">
+            <label>ブログ担当（例：山本）</label>
+            <input type="text" id="fBlog" placeholder="担当者">
+          </div>
+          <div class="field">
+            <label>時間（例：7:20〜9:30）</label>
+            <input type="text" id="fTime" placeholder="時間">
+          </div>
+        </div>
+
+        <!-- 繰り返し -->
+        <div class="field">
+          <label>繰り返し</label>
+          <div class="seg" id="recSeg">
+            <button type="button" class="seg-btn active" data-rec="none">単発</button>
+            <button type="button" class="seg-btn" data-rec="weekly">毎週</button>
+          </div>
+          <p class="hint" id="weeklyHint">※ 毎週：開始日の曜日に、以降ずっと表示されます</p>
+        </div>
+
+        <!-- 日付 -->
+        <div class="field two-col">
+          <div>
+            <label id="startLabel">日付</label>
+            <input type="date" id="fStart">
+          </div>
+          <div id="endWrap">
+            <label>終了日（複数日イベント用）</label>
+            <input type="date" id="fEnd">
+          </div>
+        </div>
+
+        <!-- 色 -->
+        <div class="field">
+          <label>色</label>
+          <div class="color-row">
+            <div id="presetColors" class="presets"></div>
+            <input type="color" id="fColor" value="#4f86ff">
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作ボタン -->
+      <div class="modal-footer">
+        <button id="deleteBtn" class="danger-btn" style="display:none;">削除</button>
+        <span class="spacer"></span>
+        <button id="cancelBtn" class="ghost-btn">キャンセル</button>
+        <button id="saveBtn" class="primary-btn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">処理中...</div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
