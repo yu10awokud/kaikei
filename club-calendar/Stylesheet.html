@@ -86,6 +86,8 @@ body {
 .day:first-child { border-left: none; }
 .day.other-month { background: #fafbfd; }
 .day.other-month .day-num { color: #c3cad6; }
+/* 当月以外のマスは中身なしの空白（クリック不可） */
+.day.blank { background: #fafbfd; cursor: default; }
 .day.today { background: var(--today); }
 
 .day-num { font-size: 12px; font-weight: 700; padding: 1px 2px; }

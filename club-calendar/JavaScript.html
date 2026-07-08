@@ -129,25 +129,30 @@ function render() {
   const first = new Date(state.year, state.month - 1, 1);
   const gridStart = addDays(first, -first.getDay());
   const gridStartStr = ymd(gridStart);
-  const gridEndStr = ymd(addDays(gridStart, 41));
+  // 当月が収まるのに必要な週数だけ描画（丸ごと翌月になる週は作らない）
+  const daysInMonth = new Date(state.year, state.month, 0).getDate();
+  const weeks = Math.ceil((first.getDay() + daysInMonth) / 7);
+  const gridEndStr = ymd(addDays(gridStart, weeks * 7 - 1));
   const todayStr = ymd(new Date());
 
   // ---- 帯バー用の「イベント表示インスタンス」を作る ----
   // 帯にするのは “複数日にまたがるイベント” だけ。
   // 単発1日イベントや毎週イベントは、練習と同じくマス内に大きく表示する。
+  // 帯は当月の日付だけに表示する（空白マスに帯がはみ出さないよう当月範囲でクリップ）
+  const monthStartStr = ymd(first);
+  const monthEndStr = ymd(new Date(state.year, state.month, 0));
   const eventInstances = [];
   state.schedules.forEach(s => {
     if (!isMultiDay(s)) return;
-    // 表示範囲にクリップ
-    const st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
-    const en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
-    if (st <= gridEndStr && en >= gridStartStr && st <= en) {
+    const st = s.startDate < monthStartStr ? monthStartStr : s.startDate;
+    const en = (s.endDate || s.startDate) > monthEndStr ? monthEndStr : (s.endDate || s.startDate);
+    if (st <= monthEndStr && en >= monthStartStr && st <= en) {
       eventInstances.push({ s, start: st, end: en, realStart: s.startDate, realEnd: (s.endDate || s.startDate) });
     }
   });
 
-  // 6週間を描画
-  for (let w = 0; w < 6; w++) {
+  // 当月を含む週だけ描画
+  for (let w = 0; w < weeks; w++) {
     const weekStart = addDays(gridStart, w * 7);
     const weekStartStr = ymd(weekStart);
     const weekEndStr = ymd(addDays(weekStart, 6));
@@ -185,7 +190,14 @@ function render() {
 
       const dayEl = document.createElement('div');
       dayEl.className = 'day';
-      if (!inMonth) dayEl.classList.add('other-month');
+
+      // 当月以外（前月末・翌月頭）のマスは空白にして何も表示しない
+      if (!inMonth) {
+        dayEl.classList.add('blank');
+        grid.appendChild(dayEl);
+        continue;
+      }
+
       if (dow === 0) dayEl.classList.add('sun');
       if (dow === 6) dayEl.classList.add('sat');
       if (state.holidays[dStr]) dayEl.classList.add('holiday');
