@@ -6,37 +6,35 @@
 </head>
 <body>
   <div id="app">
-    <!-- ヘッダー：月移動と各種ボタン -->
-    <header class="app-header">
-      <h1>部活カレンダー</h1>
-      <div class="header-tools">
-        <div class="month-nav">
-          <button id="prevMonth" class="nav-btn" aria-label="前の月">‹</button>
-          <span id="currentMonthLabel">----年--月</span>
-          <button id="nextMonth" class="nav-btn" aria-label="次の月">›</button>
-        </div>
-        <div class="header-actions">
-          <button id="todayBtn" class="ghost-btn">今日</button>
-          <!-- ボタン一つでPDF出力（印刷ダイアログから「PDFに保存」を選ぶ想定） -->
-          <button id="pdfBtn" class="ghost-btn">PDF出力</button>
-        </div>
+    <!-- ヘッダー：操作ボタン＋「8 August ... 2026」タイトル -->
+    <header class="cal-header">
+      <div class="cal-toolbar">
+        <button id="prevMonth" class="nav-btn" aria-label="前の月">‹</button>
+        <button id="nextMonth" class="nav-btn" aria-label="次の月">›</button>
+        <button id="todayBtn" class="ghost-btn">今日</button>
+        <!-- ボタン一つでPDF出力（印刷ダイアログから「PDFに保存」を選ぶ想定） -->
+        <button id="pdfBtn" class="ghost-btn">PDF出力</button>
+      </div>
+      <div class="cal-titlebar">
+        <span class="mnum" id="monthNum">–</span>
+        <span class="mname" id="monthName">–</span>
+        <span class="year" id="yearLabel">----</span>
       </div>
     </header>
 
-    <!-- 曜日見出し（日曜始まり） -->
+    <!-- 曜日見出し（日曜始まり。日＝赤／土＝青） -->
     <div class="weekdays">
-      <span class="sun">日</span><span>月</span><span>火</span><span>水</span>
-      <span>木</span><span>金</span><span class="sat">土</span>
+      <div class="wd-sun">日 Sun</div>
+      <div>月 Mon</div>
+      <div>火 Tue</div>
+      <div>水 Wed</div>
+      <div>木 Thu</div>
+      <div>金 Fri</div>
+      <div class="wd-sat">土 Sat</div>
     </div>
 
     <!-- カレンダー本体（JSで週ごとに描画） -->
     <div id="calendar" class="calendar"></div>
-
-    <!-- 凡例 -->
-    <div class="legend">
-      <span class="legend-item"><span class="lg-practice"></span>練習（場所・担当・時間）</span>
-      <span class="legend-item"><span class="lg-bar"></span>イベント（複数日は帯で連結）</span>
-    </div>
   </div>
 
   <!-- ===== 予定 追加/編集モーダル ===== -->

@@ -16,6 +16,10 @@
 /* ---------- [1] 状態と定数 ---------- */
 const PRESET_COLORS = ['#4f86ff', '#ff6b6b', '#f6a609', '#38b48b', '#9b6dff', '#8a8a8a'];
 
+// ヘッダーに出す英語月名（「8 August」表記用）
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December'];
+
 // 帯バーの寸法（Stylesheet の --bar-h / --bar-gap と合わせる）
 const BAR_H = 20, BAR_GAP = 3, BAR_TOP = 20;
 
@@ -121,215 +125,183 @@ function isMultiDay(s) {
 }
 
 function render() {
-  document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
+  // ヘッダー（例：8 / August / 2026）
+  document.getElementById('monthNum').textContent = state.month;
+  document.getElementById('monthName').textContent = MONTH_NAMES[state.month - 1];
+  document.getElementById('yearLabel').textContent = state.year;
+
   const cal = document.getElementById('calendar');
   cal.innerHTML = '';
 
-  // 月の最初の日曜（グリッド開始日）と、6週間ぶんの範囲
+  // 月の最初の日曜（グリッド開始日）。常に6週ぶん描画し、前月末・翌月頭はグレー表示
   const first = new Date(state.year, state.month - 1, 1);
   const gridStart = addDays(first, -first.getDay());
   const gridStartStr = ymd(gridStart);
-  // 当月が収まるのに必要な週数だけ描画（丸ごと翌月になる週は作らない）
-  const daysInMonth = new Date(state.year, state.month, 0).getDate();
-  const weeks = Math.ceil((first.getDay() + daysInMonth) / 7);
-  const gridEndStr = ymd(addDays(gridStart, weeks * 7 - 1));
-  const todayStr = ymd(new Date());
+  const gridEndStr = ymd(addDays(gridStart, 41));
+  const WEEKS = 6;
 
-  // ---- 帯バー用の「イベント表示インスタンス」を作る ----
-  // 帯にするのは “複数日にまたがるイベント” だけ。
-  // 単発1日イベントや毎週イベントは、練習と同じくマス内に大きく表示する。
-  // 帯は当月の日付だけに表示する（空白マスに帯がはみ出さないよう当月範囲でクリップ）
-  const monthStartStr = ymd(first);
-  const monthEndStr = ymd(new Date(state.year, state.month, 0));
-  const eventInstances = [];
+  // ---- 複数日イベント（合宿・大会など）→ 期間のマスを色で塗りつぶす ----
+  // mdMap[dStr] = { color, title, sched }  ※タイトルは期間の中央日だけに表示
+  const mdMap = {};
   state.schedules.forEach(s => {
     if (!isMultiDay(s)) return;
-    const st = s.startDate < monthStartStr ? monthStartStr : s.startDate;
-    const en = (s.endDate || s.startDate) > monthEndStr ? monthEndStr : (s.endDate || s.startDate);
-    if (st <= monthEndStr && en >= monthStartStr && st <= en) {
-      eventInstances.push({ s, start: st, end: en, realStart: s.startDate, realEnd: (s.endDate || s.startDate) });
-    }
+    let st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
+    let en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
+    if (st > gridEndStr || en < gridStartStr || st > en) return;
+    const days = [];
+    for (let d = parseYmd(st); ymd(d) <= en; d = addDays(d, 1)) days.push(ymd(d));
+    const midStr = days[Math.floor((days.length - 1) / 2)]; // 中央の日
+    days.forEach(dStr => {
+      mdMap[dStr] = { color: s.color, title: dStr === midStr ? (s.title || '') : '', sched: s };
+    });
   });
 
-  // 当月を含む週だけ描画
-  for (let w = 0; w < weeks; w++) {
+  // 6週間ぶんを描画
+  for (let w = 0; w < WEEKS; w++) {
     const weekStart = addDays(gridStart, w * 7);
-    const weekStartStr = ymd(weekStart);
-    const weekEndStr = ymd(addDays(weekStart, 6));
-
-    // この週にかかるイベントを「週内セグメント」に切り出し、レーン（段）を割り当てる
-    const segments = [];
-    eventInstances.forEach(inst => {
-      if (inst.end < weekStartStr || inst.start > weekEndStr) return;
-      const segStart = inst.start < weekStartStr ? weekStartStr : inst.start;
-      const segEnd = inst.end > weekEndStr ? weekEndStr : inst.end;
-      segments.push({
-        inst,
-        startCol: daysBetween(weekStart, parseYmd(segStart)),
-        endCol: daysBetween(weekStart, parseYmd(segEnd)),
-        midStart: (inst.realStart || inst.start) < segStart,
-        midEnd: (inst.realEnd || inst.end) > segEnd
-      });
-    });
-    const laneCount = assignLanes(segments); // segments[i].lane が決まる
-
-    // 週コンテナ
     const weekEl = document.createElement('div');
     weekEl.className = 'week';
-
-    // 日付マスのグリッド
     const grid = document.createElement('div');
     grid.className = 'week-grid';
-    const barsSpaceH = laneCount * (BAR_H + BAR_GAP); // バーぶんの予約高さ
 
     for (let c = 0; c < 7; c++) {
       const d = addDays(weekStart, c);
       const dStr = ymd(d);
       const dow = d.getDay();
       const inMonth = (d.getMonth() + 1) === state.month;
+      const holiday = state.holidays[dStr];
 
       const dayEl = document.createElement('div');
       dayEl.className = 'day';
-
-      // 当月以外（前月末・翌月頭）のマスは空白にして何も表示しない
-      if (!inMonth) {
-        dayEl.classList.add('blank');
-        grid.appendChild(dayEl);
-        continue;
-      }
-
       if (dow === 0) dayEl.classList.add('sun');
       if (dow === 6) dayEl.classList.add('sat');
-      if (state.holidays[dStr]) dayEl.classList.add('holiday');
-      if (dStr === todayStr) dayEl.classList.add('today');
-      dayEl.dataset.date = dStr;
+      if (holiday) dayEl.classList.add('holiday');
+      if (!inMonth) dayEl.classList.add('other-month');
 
-      // 日付番号（＋祝日名）
+      // 日付番号（マス左上）
       const num = document.createElement('div');
       num.className = 'day-num';
       num.textContent = d.getDate();
       dayEl.appendChild(num);
-      if (state.holidays[dStr]) {
-        const hn = document.createElement('div');
-        hn.className = 'holiday-name';
-        hn.textContent = state.holidays[dStr];
-        dayEl.appendChild(hn);
+
+      // 前月末・翌月頭は番号のみ（グレー）で、予定・クリックなし
+      if (!inMonth) { grid.appendChild(dayEl); continue; }
+      dayEl.dataset.date = dStr;
+
+      // このマスに載る要素を集める（複数日イベント塗り / 練習 / 単発・毎週イベント）
+      const md = mdMap[dStr];
+      const practices = schedulesOnDate(dStr).filter(s => s.type === 'practice').map(s => effective(s, dStr));
+      const events = schedulesOnDate(dStr).filter(s => s.type === 'event' && !isMultiDay(s)).map(s => effective(s, dStr));
+
+      const blocks = [];
+      if (md) blocks.push({ kind: 'md', color: md.color, title: md.title, sched: md.sched });
+      practices.forEach(p => blocks.push({ kind: 'practice', color: p.color, s: p }));
+      events.forEach(e => blocks.push({ kind: 'event', color: e.color, s: e }));
+
+      // 右上ノート（赤・小）：祝日名 ＋ 練習のブログ担当
+      const noteText = buildNoteText(holiday, practices);
+      if (noteText) {
+        const note = document.createElement('div');
+        note.className = 'day-note';
+        note.textContent = noteText;
+        dayEl.appendChild(note);
       }
 
-      // 帯バーぶんの予約スペース
-      const space = document.createElement('div');
-      space.className = 'bars-space';
-      space.style.height = barsSpaceH + 'px';
-      dayEl.appendChild(space);
-
-      // 練習マス（場所 / ブログ担当 / 時間）※例外があればその日の値で表示
-      schedulesOnDate(dStr).filter(s => s.type === 'practice').forEach(s => {
-        dayEl.appendChild(buildPractice(effective(s, dStr), dStr));
-      });
-      // イベント（単発1日・毎週）はマス内に大きく表示。複数日イベントは帯なので除外
-      schedulesOnDate(dStr).filter(s => s.type === 'event' && !isMultiDay(s)).forEach(s => {
-        dayEl.appendChild(buildEventBlock(effective(s, dStr), dStr));
-      });
-
-      // マスの空きをクリック → その日に新規追加
-      dayEl.addEventListener('click', function (e) {
-        if (e.target.closest('.practice') || e.target.closest('.bar')) return;
-        openModalForAdd(dStr);
-      });
+      if (blocks.length === 1) {
+        // マス全面を色で塗りつぶし（番号・ノートは上に重ねる）
+        const b = blocks[0];
+        dayEl.classList.add('filled');
+        dayEl.style.background = hexToRgba(b.color, 0.16);
+        dayEl.appendChild(buildCellBody(b));
+        dayEl.addEventListener('click', function () { openModalForEdit(b.s || b.sched, dStr); });
+      } else if (blocks.length > 1) {
+        // 複数ある日は色つきブロックを縦に並べる
+        dayEl.classList.add('multi');
+        blocks.forEach(b => {
+          const sub = document.createElement('div');
+          sub.className = 'fill-block';
+          sub.style.background = hexToRgba(b.color, 0.16);
+          sub.appendChild(buildCellBody(b));
+          sub.addEventListener('click', function (e) { e.stopPropagation(); openModalForEdit(b.s || b.sched, dStr); });
+          dayEl.appendChild(sub);
+        });
+        dayEl.addEventListener('click', function (e) {
+          if (e.target.closest('.fill-block')) return;
+          openModalForAdd(dStr);
+        });
+      } else {
+        // 予定なし → クリックで新規追加
+        dayEl.addEventListener('click', function () { openModalForAdd(dStr); });
+      }
 
       grid.appendChild(dayEl);
     }
     weekEl.appendChild(grid);
-
-    // 帯バーの重ね描画レイヤー
-    const barsLayer = document.createElement('div');
-    barsLayer.className = 'week-bars';
-    segments.forEach(seg => {
-      const span = seg.endCol - seg.startCol + 1;
-      const bar = document.createElement('div');
-      bar.className = 'bar' + (seg.midStart ? ' mid-start' : '') + (seg.midEnd ? ' mid-end' : '');
-      bar.style.left = 'calc(' + (seg.startCol / 7 * 100) + '% + 2px)';
-      bar.style.width = 'calc(' + (span / 7 * 100) + '% - 4px)';
-      bar.style.top = (seg.lane * (BAR_H + BAR_GAP)) + 'px';
-      bar.style.background = seg.inst.s.color;
-      bar.textContent = seg.inst.s.title || '(無題)';
-      bar.addEventListener('click', function (e) {
-        e.stopPropagation();
-        // 帯クリック時は、そのバーの日付（開始セグメント日）を対象日にする
-        openModalForEdit(seg.inst.s, seg.inst.start);
-      });
-      barsLayer.appendChild(bar);
-    });
-    weekEl.appendChild(barsLayer);
-
     cal.appendChild(weekEl);
   }
 }
 
-/** 練習マス（3項目レイアウト）のDOMを作る。dateStr＝このマスの日付 */
-function buildPractice(s, dateStr) {
-  const el = document.createElement('div');
-  el.className = 'practice';
-  // 薄い背景＋枠に予定色を反映
-  el.style.background = hexToRgba(s.color, 0.14);
-  el.style.borderColor = hexToRgba(s.color, 0.5);
+/** マス内の中身（練習＝場所＋時間 / イベント＝タイトル）を作る */
+function buildCellBody(b) {
+  const body = document.createElement('div');
+  body.className = 'cell-body';
 
-  const place = document.createElement('div');
-  place.className = 'p-place';
-  place.textContent = s.place || '練習';
-  el.appendChild(place);
-
-  if (s.blogUser) {
-    const blog = document.createElement('div');
-    blog.className = 'p-blog';
-    blog.textContent = s.blogUser;
-    el.appendChild(blog);
+  if (b.kind === 'practice') {
+    const s = b.s;
+    const place = document.createElement('div');
+    place.className = 'cb-place';
+    place.textContent = s.place || '練習';
+    place.style.color = darken(s.color);
+    body.appendChild(place);
+    if (s.time) {
+      const time = document.createElement('div');
+      time.className = 'cb-time';
+      time.textContent = s.time; // 改行(\n)は CSS の pre-line で2行表示
+      body.appendChild(time);
+    }
+  } else if (b.kind === 'md') {
+    // 複数日イベント＝タイトルは期間の中央日だけ（他の日は色の塗りのみ）
+    if (b.title) {
+      const title = document.createElement('div');
+      title.className = 'cb-title';
+      title.textContent = b.title;
+      title.style.color = darken(b.color);
+      body.appendChild(title);
+    }
+  } else {
+    // 単発・毎週イベント＝タイトルを中央に
+    const title = document.createElement('div');
+    title.className = 'cb-title';
+    title.textContent = (b.s.title || '(無題)');
+    title.style.color = darken(b.color);
+    body.appendChild(title);
   }
-  if (s.time) {
-    const time = document.createElement('div');
-    time.className = 'p-time';
-    time.textContent = s.time;
-    el.appendChild(time);
-  }
-
-  el.addEventListener('click', function (e) {
-    e.stopPropagation();
-    openModalForEdit(s, dateStr);
-  });
-  return el;
+  return body;
 }
 
-/** イベントマス（単発1日・毎週）のDOMを作る。マス全面に色つきで大きく表示 */
-function buildEventBlock(s, dateStr) {
-  const el = document.createElement('div');
-  el.className = 'event-block';
-  el.style.background = s.color;
-  el.textContent = s.title || '(無題)';
-  el.addEventListener('click', function (e) {
-    e.stopPropagation();
-    openModalForEdit(s, dateStr);
-  });
-  return el;
+/** 右上ノート文字列（祝日名／ブログ担当）を組み立てる */
+function buildNoteText(holiday, practices) {
+  const parts = [];
+  if (holiday) parts.push(holiday);
+  practices.forEach(p => { if (p.blogUser) parts.push(p.blogUser); });
+  return parts.join('\n');
 }
 
-/** 週内セグメントにレーン（段）を割り当て、使用レーン数を返す */
-function assignLanes(segments) {
-  segments.sort((a, b) => a.startCol - b.startCol);
-  const laneEnds = []; // laneEnds[lane] = そのレーンで使用済みの最終col
-  segments.forEach(seg => {
-    let lane = 0;
-    while (lane < laneEnds.length && laneEnds[lane] >= seg.startCol) lane++;
-    seg.lane = lane;
-    laneEnds[lane] = seg.endCol;
-  });
-  return laneEnds.length;
-}
-
-/** '#rrggbb' → 'rgba(r,g,b,a)' */
+/** '#rrggbb' → 'rgba(r,g,b,a)'（マス背景の薄い塗り用） */
 function hexToRgba(hex, a) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
   if (!m) return 'rgba(79,134,255,' + a + ')';
   return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+}
+
+/** 予定色を暗くした文字色を返す（薄い塗りの上でも読めるように） */
+function darken(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '');
+  if (!m) return '#333';
+  const f = 0.55;
+  return 'rgb(' + Math.round(parseInt(m[1], 16) * f) + ',' +
+                  Math.round(parseInt(m[2], 16) * f) + ',' +
+                  Math.round(parseInt(m[3], 16) * f) + ')';
 }
 
 /* ---------- [5] モーダル（追加・編集・削除） ---------- */

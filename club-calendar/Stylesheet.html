@@ -5,17 +5,15 @@
    - :root の変数を変えると全体のトーンが変わります
    ========================================================= */
 :root {
-  --bg:        #f4f6fb;
+  --bg:        #ffffff;
   --panel:     #ffffff;
-  --line:      #e2e6ee;
-  --text:      #26303d;
+  --line:      #cfd4dc;   /* 罫線（薄いグレー） */
+  --text:      #222222;
   --muted:     #8a94a6;
-  --sun:       #e8503a;   /* 日曜・祝日 */
-  --sat:       #2f74d0;   /* 土曜 */
-  --today:     #fff6e0;   /* 今日のマス背景 */
+  --sun:       #e8281e;   /* 日曜・祝日（赤） */
+  --sat:       #2b5ed6;   /* 土曜（青） */
+  --wd-bg:     #ededed;   /* 平日の曜日見出し背景 */
   --accent:    #4f86ff;
-  --bar-h:     20px;      /* イベント帯1本の高さ */
-  --bar-gap:   3px;
 }
 
 * { box-sizing: border-box; }
@@ -28,141 +26,96 @@ body {
   color: var(--text);
   -webkit-text-size-adjust: 100%;
 }
-#app { max-width: 1000px; margin: 0 auto; padding: 10px; }
+#app { max-width: 1100px; margin: 0 auto; padding: 12px; }
 
-/* ===== ヘッダー ===== */
-.app-header {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 6px 4px 12px;
+/* ===== ヘッダー（8 August ...... 2026） ===== */
+.cal-header { padding: 8px 2px 12px; }
+.cal-toolbar {
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: 8px; margin-bottom: 6px;
 }
-.app-header h1 { font-size: 20px; margin: 0; }
-.header-tools {
-  display: flex; justify-content: space-between; align-items: center;
-  flex-wrap: wrap; gap: 8px;
-}
-.month-nav { display: flex; align-items: center; gap: 10px; }
-#currentMonthLabel { font-size: 18px; font-weight: 700; min-width: 130px; text-align: center; }
 .nav-btn {
-  width: 38px; height: 38px; border: 1px solid var(--line);
-  background: var(--panel); border-radius: 10px; font-size: 20px;
+  width: 36px; height: 36px; border: 1px solid var(--line);
+  background: #fff; border-radius: 9px; font-size: 20px;
   cursor: pointer; color: var(--text);
 }
 .nav-btn:active { background: #eef1f7; }
-.header-actions { display: flex; gap: 8px; }
+
+.cal-titlebar { display: flex; align-items: baseline; gap: 12px; }
+.cal-titlebar .mnum  { font-size: 46px; font-weight: 800; line-height: 1; }
+.cal-titlebar .mname { font-size: 30px; font-weight: 700; }
+.cal-titlebar .year  { margin-left: auto; font-size: 30px; font-weight: 800; }
 
 /* ボタン共通 */
 .ghost-btn, .primary-btn, .danger-btn {
-  border-radius: 10px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  border-radius: 9px; padding: 7px 13px; font-size: 14px; cursor: pointer;
   border: 1px solid var(--line);
 }
-.ghost-btn { background: var(--panel); color: var(--text); }
+.ghost-btn { background: #fff; color: var(--text); }
 .primary-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
 .danger-btn { background: #fff; color: var(--sun); border-color: #f0c3bb; }
 
-/* ===== 曜日見出し ===== */
+/* ===== 曜日見出し（日＝赤 / 土＝青 / 平日＝グレー） ===== */
 .weekdays {
   display: grid; grid-template-columns: repeat(7, 1fr);
-  text-align: center; font-size: 13px; font-weight: 700;
-  color: var(--muted); padding: 4px 0;
+  border-top: 1px solid var(--line); border-left: 1px solid var(--line);
 }
-.weekdays .sun { color: var(--sun); }
-.weekdays .sat { color: var(--sat); }
+.weekdays > div {
+  text-align: center; padding: 9px 0; font-weight: 700; font-size: 14px;
+  background: var(--wd-bg); color: #333;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.weekdays .wd-sun { background: var(--sun); color: #fff; }
+.weekdays .wd-sat { background: var(--sat); color: #fff; }
 
 /* ===== カレンダー本体 ===== */
-.calendar {
-  background: var(--panel); border: 1px solid var(--line);
-  border-radius: 12px; overflow: hidden;
-}
-.week { position: relative; border-top: 1px solid var(--line); }
-.week:first-child { border-top: none; }
-
-/* 日付マスの並び */
+.calendar { border-left: 1px solid var(--line); background: #fff; }
 .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .day {
-  min-height: 96px; border-left: 1px solid var(--line);
-  padding: 2px 3px; cursor: pointer; position: relative;
-  display: flex; flex-direction: column;
+  position: relative; min-height: 108px;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  cursor: pointer; overflow: hidden; background: #fff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-.day:first-child { border-left: none; }
-.day.other-month { background: #fafbfd; }
-.day.other-month .day-num { color: #c3cad6; }
-/* 当月以外のマスは中身なしの空白（クリック不可） */
-.day.blank { background: #fafbfd; cursor: default; }
-.day.today { background: var(--today); }
+.day.other-month { background: #ffffff; cursor: default; }
 
-.day-num { font-size: 12px; font-weight: 700; padding: 1px 2px; }
-.day.sun .day-num { color: var(--sun); }
+/* 日付番号（左上） */
+.day-num {
+  position: absolute; top: 4px; left: 7px; z-index: 2;
+  font-size: 14px; font-weight: 700; color: var(--text);
+}
+.day.sun .day-num, .day.holiday .day-num { color: var(--sun); }
 .day.sat .day-num { color: var(--sat); }
-.day.holiday .day-num { color: var(--sun); }
-.holiday-name {
-  font-size: 9px; color: var(--sun); line-height: 1.1;
-  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+.day.other-month .day-num { color: #c3cad6; }
+
+/* 右上ノート（祝日名 / ブログ担当。赤・小） */
+.day-note {
+  position: absolute; top: 5px; right: 7px; z-index: 2;
+  font-size: 10px; color: var(--sun); text-align: right;
+  line-height: 1.2; white-space: pre-line; max-width: 62%;
 }
 
-/* イベント帯（複数日にまたがるバー）を置くための予約スペース */
-.bars-space { width: 100%; }
+/* マス内の中身（練習＝場所＋時間 / イベント＝タイトル）。マスの中央に配置 */
+.cell-body {
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 24px 5px 8px;
+}
+.cb-place { font-size: 15px; font-weight: 700; line-height: 1.2; word-break: break-word; }
+.cb-title { font-size: 16px; font-weight: 700; line-height: 1.25; word-break: break-word; }
+.cb-time  {
+  margin-top: 6px; font-size: 11px; color: #555;
+  line-height: 1.3; white-space: pre-line;   /* 2部練は改行で2行表示 */
+}
 
-/* ===== イベント帯（バー） ===== */
-.week-bars { position: absolute; left: 0; right: 0; top: 20px; pointer-events: none; }
-.bar {
-  position: absolute; height: var(--bar-h); line-height: var(--bar-h);
-  border-radius: 5px; color: #fff; font-size: 11px; font-weight: 700;
-  padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  pointer-events: auto; cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0,0,0,.12);
-  /* 印刷（PDF）でも背景色を残す */
+/* 1日に複数の予定がある場合の縦並び（まれ） */
+.day.multi { padding-top: 20px; display: flex; flex-direction: column; }
+.day.multi .fill-block {
+  position: relative; flex: 1; min-height: 40px; margin-top: 1px;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
-/* 期間の途中は角丸を消して連続して見せる */
-.bar.mid-start { border-top-left-radius: 0; border-bottom-left-radius: 0; }
-.bar.mid-end { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-
-/* ===== 練習マス（場所 / ブログ担当 / 時間 の3項目） ===== */
-.practice {
-  position: relative; flex: 1; margin-top: 2px;
-  border-radius: 6px; border: 1px solid rgba(0,0,0,.08);
-  padding: 15px 3px 5px; min-height: 58px;
-  display: flex; flex-direction: column;      /* 場所（中央）→ 時間（下部）を縦積み */
-  cursor: pointer; overflow: hidden;
-  /* 印刷（PDF）でも背景色を残す */
-  -webkit-print-color-adjust: exact; print-color-adjust: exact;
-}
-.practice + .practice { margin-top: 3px; }
-.p-place {                                   /* マス中央：場所 */
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; text-align: center;
-  line-height: 1.15; word-break: break-word;
-}
-.p-blog {                                    /* マス右上：ブログ担当 */
-  position: absolute; top: 2px; right: 4px;
-  font-size: 10px; color: #4a5568;
-}
-.p-time {                                    /* マス中央下部：時間（2部練は改行で複数行OK） */
-  text-align: center; font-size: 10px; color: #4a5568;
-  line-height: 1.2; white-space: pre-line;   /* 改行(\n)をそのまま表示 */
-  word-break: break-word;
-}
-
-/* ===== イベントマス（大会・練習試合など。単発は練習と同じくマス全面に大きく表示） ===== */
-.event-block {
-  flex: 1; margin-top: 2px; min-height: 58px;
-  border-radius: 6px; color: #fff; font-weight: 700;
-  display: flex; align-items: center; justify-content: center; text-align: center;
-  padding: 8px 4px; line-height: 1.2; word-break: break-word;
-  cursor: pointer; overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0,0,0,.12);
-  -webkit-print-color-adjust: exact; print-color-adjust: exact;
-}
-.event-block + .event-block, .practice + .event-block, .event-block + .practice { margin-top: 3px; }
-
-/* ===== 凡例 ===== */
-.legend {
-  display: flex; gap: 16px; flex-wrap: wrap;
-  padding: 10px 4px; font-size: 12px; color: var(--muted);
-}
-.legend-item { display: flex; align-items: center; gap: 6px; }
-.lg-bar { width: 22px; height: 12px; border-radius: 4px; background: var(--accent); }
-.lg-practice { width: 22px; height: 12px; border-radius: 4px; border: 1px solid var(--accent); background: rgba(79,134,255,.12); }
+.day.multi .cell-body { position: relative; inset: auto; padding: 4px; }
 
 /* ===== モーダル ===== */
 .modal-overlay {
@@ -238,10 +191,17 @@ body {
 /* ===== スマホ対応 ===== */
 @media (max-width: 560px) {
   #app { padding: 6px; }
-  .app-header h1 { font-size: 18px; }
-  .day { min-height: 78px; }
-  .p-place { font-size: 11px; }
-  .bar { font-size: 10px; padding: 0 4px; }
+  .cal-titlebar .mnum { font-size: 34px; }
+  .cal-titlebar .mname, .cal-titlebar .year { font-size: 22px; }
+  .weekdays > div { font-size: 12px; padding: 6px 0; }
+  .day { min-height: 72px; }
+  .day-num { font-size: 12px; top: 2px; left: 4px; }
+  .day-note { font-size: 9px; top: 2px; right: 4px; }
+  .cb-place { font-size: 12px; }
+  .cb-title { font-size: 12px; }
+  .cb-time { font-size: 9px; }
+  /* 狭いマスでは中身を上寄せ＆マスを内容に合わせて伸ばし、日付番号と重ならない・切れないようにする */
+  .cell-body { position: static; inset: auto; padding: 20px 3px 6px; justify-content: flex-start; }
   .two-col { flex-direction: column; }
 }
 
@@ -251,10 +211,9 @@ body {
   /* 印刷時は全要素で背景色・色をそのまま出す（色が枠線だけになる現象の対策） */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body { background: #fff; }
-  .app-header .header-actions, .month-nav .nav-btn, .legend { display: none; }
+  .cal-toolbar { display: none; }
   .modal-overlay, .loading { display: none !important; }
-  #app { max-width: 100%; }
-  .calendar { border-color: #999; }
-  .day { min-height: 90px; }
+  #app { max-width: 100%; padding: 0; }
+  .day { min-height: 96px; }
 }
 </style>
