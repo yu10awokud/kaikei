@@ -34,8 +34,8 @@
 
     <!-- 凡例 -->
     <div class="legend">
-      <span class="legend-item"><span class="lg-bar"></span>イベント（帯）</span>
       <span class="legend-item"><span class="lg-practice"></span>練習（場所・担当・時間）</span>
+      <span class="legend-item"><span class="lg-bar"></span>イベント（複数日は帯で連結）</span>
     </div>
   </div>
 
@@ -90,8 +90,8 @@
             <input type="text" id="fBlog" placeholder="担当者">
           </div>
           <div class="field">
-            <label>時間（例：7:20〜9:30）</label>
-            <input type="text" id="fTime" placeholder="時間">
+            <label>時間（例：7:20〜9:30／2部練は改行で2行）</label>
+            <textarea id="fTime" rows="2" placeholder="7:20〜9:30&#10;（2部練は改行して2行目に）"></textarea>
           </div>
         </div>
 

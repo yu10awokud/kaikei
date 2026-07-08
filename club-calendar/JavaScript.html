@@ -114,6 +114,12 @@ function schedulesOnDate(dateStr) {
   return state.schedules.filter(s => occursOn(s, dateStr));
 }
 
+/** 複数日にまたがるイベントか（＝カレンダー上で帯バー表示にする対象） */
+function isMultiDay(s) {
+  return s.type === 'event' && s.recurrence === 'none' &&
+         s.endDate && s.endDate !== s.startDate;
+}
+
 function render() {
   document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
   const cal = document.getElementById('calendar');
@@ -126,28 +132,17 @@ function render() {
   const gridEndStr = ymd(addDays(gridStart, 41));
   const todayStr = ymd(new Date());
 
-  // ---- 帯バー用に「イベントの表示インスタンス」を作る ----
-  // （単発の複数日イベント＋毎週イベントを、表示範囲に展開）
+  // ---- 帯バー用の「イベント表示インスタンス」を作る ----
+  // 帯にするのは “複数日にまたがるイベント” だけ。
+  // 単発1日イベントや毎週イベントは、練習と同じくマス内に大きく表示する。
   const eventInstances = [];
   state.schedules.forEach(s => {
-    if (s.type !== 'event') return;
-    if (s.recurrence === 'weekly') {
-      // 毎週イベント：該当曜日ごとに1日バーを置く（例外があれば反映・非表示）
-      for (let i = 0; i < 42; i++) {
-        const d = addDays(gridStart, i);
-        if (d.getDay() === Number(s.weekday) && d >= parseYmd(s.startDate)) {
-          const eff = effective(s, ymd(d));
-          if (eff._hidden) continue;
-          eventInstances.push({ s: eff, start: ymd(d), end: ymd(d) });
-        }
-      }
-    } else {
-      // 単発イベント：表示範囲にクリップ
-      const st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
-      const en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
-      if (st <= gridEndStr && en >= gridStartStr && st <= en) {
-        eventInstances.push({ s, start: st, end: en, realStart: s.startDate, realEnd: (s.endDate || s.startDate) });
-      }
+    if (!isMultiDay(s)) return;
+    // 表示範囲にクリップ
+    const st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
+    const en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
+    if (st <= gridEndStr && en >= gridStartStr && st <= en) {
+      eventInstances.push({ s, start: st, end: en, realStart: s.startDate, realEnd: (s.endDate || s.startDate) });
     }
   });
 
@@ -219,6 +214,10 @@ function render() {
       schedulesOnDate(dStr).filter(s => s.type === 'practice').forEach(s => {
         dayEl.appendChild(buildPractice(effective(s, dStr), dStr));
       });
+      // イベント（単発1日・毎週）はマス内に大きく表示。複数日イベントは帯なので除外
+      schedulesOnDate(dStr).filter(s => s.type === 'event' && !isMultiDay(s)).forEach(s => {
+        dayEl.appendChild(buildEventBlock(effective(s, dStr), dStr));
+      });
 
       // マスの空きをクリック → その日に新規追加
       dayEl.addEventListener('click', function (e) {
@@ -281,6 +280,19 @@ function buildPractice(s, dateStr) {
     el.appendChild(time);
   }
 
+  el.addEventListener('click', function (e) {
+    e.stopPropagation();
+    openModalForEdit(s, dateStr);
+  });
+  return el;
+}
+
+/** イベントマス（単発1日・毎週）のDOMを作る。マス全面に色つきで大きく表示 */
+function buildEventBlock(s, dateStr) {
+  const el = document.createElement('div');
+  el.className = 'event-block';
+  el.style.background = s.color;
+  el.textContent = s.title || '(無題)';
   el.addEventListener('click', function (e) {
     e.stopPropagation();
     openModalForEdit(s, dateStr);
