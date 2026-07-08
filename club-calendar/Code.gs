@@ -17,12 +17,19 @@
 // ===== 設定（後から差し替え可能な定数） =====
 const SPREADSHEET_ID = '';          // 例: '1AbCdEf...'（空ならアクティブなシートを使用）
 const SHEET_NAME     = '予定';       // 予定を保存するシート名
+const SHEET_OVERRIDE = '例外';       // 「毎週予定のこの日だけ変更/非表示」を保存するシート名
 
 // 予定の見出し行（列の並び順もこの通り）
 const HEADERS = [
   'id', 'title', 'startDate', 'endDate',
   'color', 'type', 'place', 'blogUser',
   'time', 'recurrence', 'weekday'
+];
+
+// 例外（オカレンス単位の上書き）の見出し行
+// masterId＝どの予定の / date＝どの日を / 各項目＝上書き値 / hidden＝その日だけ非表示
+const OVERRIDE_HEADERS = [
+  'masterId', 'date', 'title', 'place', 'blogUser', 'time', 'color', 'hidden'
 ];
 
 // 予定に使う色のプリセット（フロントのボタンと合わせています）
@@ -65,6 +72,19 @@ function setupSheet_() {
     if (blank && ss.getSheets().length > 1) {
       try { ss.deleteSheet(blank); } catch (e) {}
     }
+  }
+  ensureOverrideSheet_(ss);
+  return sheet;
+}
+
+/** 例外シートが無ければ作成する */
+function ensureOverrideSheet_(ss) {
+  let sheet = ss.getSheetByName(SHEET_OVERRIDE);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_OVERRIDE);
+    sheet.getRange(1, 1, 1, OVERRIDE_HEADERS.length)
+      .setValues([OVERRIDE_HEADERS]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
   }
   return sheet;
 }
@@ -145,12 +165,104 @@ function saveSchedule(rec) {
   return { ok: true, id: newRow[0] };
 }
 
-/** 予定を1件削除する */
+/** 予定を1件削除する（毎週予定の場合は、その予定に紐づく例外もまとめて掃除） */
 function deleteSchedule(id) {
   const sheet = setupSheet_();
   const rowIndex = findRowById_(sheet, id);
   if (rowIndex > 0) sheet.deleteRow(rowIndex);
+  deleteOverridesByMaster_(id); // 親を消したら、その日だけ変更の例外も不要
   return { ok: true };
+}
+
+// ===== 例外（毎週予定の「この日だけ」変更 / 非表示） =====
+
+/**
+ * すべての例外を返す。表示側で「毎週予定 × 日付」に重ねて使います。
+ * 返す形: [{ masterId, date, title, place, blogUser, time, color, hidden }]
+ */
+function getOverrides() {
+  const ss = getSpreadsheet_();
+  const sheet = ensureOverrideSheet_(ss);
+  const values = sheet.getDataRange().getValues();
+  const tz = Session.getScriptTimeZone();
+  const list = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0] || !row[1]) continue; // masterId / date が無い行はスキップ
+    list.push({
+      masterId: String(row[0]),
+      date:     toDateStr_(row[1], tz),
+      title:    String(row[2] || ''),
+      place:    String(row[3] || ''),
+      blogUser: String(row[4] || ''),
+      time:     String(row[5] || ''),
+      color:    String(row[6] || ''),
+      hidden:   row[7] === true || String(row[7]).toLowerCase() === 'true'
+    });
+  }
+  return list;
+}
+
+/**
+ * 例外を1件保存する（masterId × date で一意。無ければ追加、有れば上書き）。
+ * これで「毎週予定はそのまま、その日のブログ担当だけ変える」が実現できます。
+ */
+function saveOverride(ov) {
+  const ss = getSpreadsheet_();
+  const sheet = ensureOverrideSheet_(ss);
+  const newRow = [
+    ov.masterId,
+    ov.date,
+    ov.title || '',
+    ov.place || '',
+    ov.blogUser || '',
+    ov.time || '',
+    ov.color || '',
+    ov.hidden === true
+  ];
+  const rowIndex = findOverrideRow_(sheet, ov.masterId, ov.date);
+  if (rowIndex > 0) {
+    sheet.getRange(rowIndex, 1, 1, newRow.length).setValues([newRow]);
+  } else {
+    sheet.appendRow(newRow);
+  }
+  return { ok: true };
+}
+
+/** 例外を1件削除する（その日を「毎週の初期設定」に戻す） */
+function deleteOverride(masterId, date) {
+  const ss = getSpreadsheet_();
+  const sheet = ensureOverrideSheet_(ss);
+  const rowIndex = findOverrideRow_(sheet, masterId, date);
+  if (rowIndex > 0) sheet.deleteRow(rowIndex);
+  return { ok: true };
+}
+
+/** ある親予定に紐づく例外を全削除（親の削除時に使う） */
+function deleteOverridesByMaster_(masterId) {
+  const ss = getSpreadsheet_();
+  const sheet = ensureOverrideSheet_(ss);
+  const last = sheet.getLastRow();
+  if (last < 2) return;
+  const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
+  // 下から消すと行番号がずれない
+  for (let i = ids.length - 1; i >= 0; i--) {
+    if (String(ids[i][0]) === String(masterId)) sheet.deleteRow(i + 2);
+  }
+}
+
+// ===== まとめて取得（画面初期化用：1往復で済ませる） =====
+
+/**
+ * 予定・例外・（指定月の）祝日をまとめて返す。
+ * フロントの load() はこれ1回だけ呼べばOK。
+ */
+function getCalendarData(year, month) {
+  return {
+    schedules: getSchedules(),
+    overrides: getOverrides(),
+    holidays:  getHolidays(year, month)
+  };
 }
 
 // ===== 祝日（余裕対応：日本の祝日カレンダーを利用） =====
@@ -196,6 +308,21 @@ function findRowById_(sheet, id) {
   const ids = sheet.getRange(2, 1, last - 1, 1).getValues();
   for (let i = 0; i < ids.length; i++) {
     if (String(ids[i][0]) === String(id)) return i + 2; // 見出し行の分 +2
+  }
+  return -1;
+}
+
+/** 例外シートで masterId × date に一致する行番号（1始まり）を探す。無ければ -1 */
+function findOverrideRow_(sheet, masterId, date) {
+  const last = sheet.getLastRow();
+  if (last < 2) return -1;
+  const tz = Session.getScriptTimeZone();
+  const rows = sheet.getRange(2, 1, last - 1, 2).getValues(); // masterId, date
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(masterId) &&
+        toDateStr_(rows[i][1], tz) === String(date)) {
+      return i + 2;
+    }
   }
   return -1;
 }

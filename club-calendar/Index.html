@@ -52,6 +52,16 @@
 
       <!-- 入力フォーム -->
       <div class="form">
+        <!-- 変更範囲（毎週予定を編集するときだけ表示） -->
+        <div class="field" id="scopeField" style="display:none;">
+          <label>変更する範囲</label>
+          <div class="seg" id="scopeSeg">
+            <button type="button" class="seg-btn active" data-scope="day">この日だけ</button>
+            <button type="button" class="seg-btn" data-scope="all">毎週すべて</button>
+          </div>
+          <p class="hint" id="scopeHint">※「この日だけ」なら、他の週のブログ担当などはそのまま残ります</p>
+        </div>
+
         <!-- 種別 -->
         <div class="field">
           <label>種別</label>
@@ -95,8 +105,11 @@
           <p class="hint" id="weeklyHint">※ 毎週：開始日の曜日に、以降ずっと表示されます</p>
         </div>
 
+        <!-- 対象日の表示（「この日だけ」変更のとき用） -->
+        <p class="day-target" id="dayTargetNote" style="display:none;"></p>
+
         <!-- 日付 -->
-        <div class="field two-col">
+        <div class="field two-col" id="dateFields">
           <div>
             <label id="startLabel">日付</label>
             <input type="date" id="fStart">
@@ -120,6 +133,7 @@
       <!-- 操作ボタン -->
       <div class="modal-footer">
         <button id="deleteBtn" class="danger-btn" style="display:none;">削除</button>
+        <button id="revertBtn" class="ghost-btn" style="display:none;">初期設定に戻す</button>
         <span class="spacer"></span>
         <button id="cancelBtn" class="ghost-btn">キャンセル</button>
         <button id="saveBtn" class="primary-btn">保存</button>

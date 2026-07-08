@@ -21,10 +21,16 @@ const BAR_H = 20, BAR_GAP = 3, BAR_TOP = 20;
 
 const state = {
   year: 0,
-  month: 0,          // 1〜12
-  schedules: [],     // サーバーから取得した全予定
-  holidays: {},      // { 'yyyy-MM-dd': '祝日名' }
-  editing: null      // 編集中の予定id（新規なら null）
+  month: 0,            // 1〜12
+  schedules: [],       // サーバーから取得した全予定
+  overrides: [],       // 「毎週予定のこの日だけ変更/非表示」の例外
+  overrideMap: {},     // 'masterId|date' → 例外オブジェクト（高速参照用）
+  holidays: {},        // { 'yyyy-MM-dd': '祝日名' }
+  editing: null,       // 編集中の予定id（新規なら null）
+  editMaster: null,    // 編集中の親予定オブジェクト
+  editDate: null,      // 編集対象のオカレンス日（毎週予定の「この日だけ」用）
+  editIsWeekly: false, // 編集中が毎週予定か
+  editHasOverride: false // その日に既存の例外があるか
 };
 
 /* ---------- [2] 日付ユーティリティ ---------- */
@@ -39,24 +45,50 @@ function showLoading(on) { document.getElementById('loading').classList.toggle('
 
 function load() {
   showLoading(true);
-  // 予定と祝日を取得してから描画
+  // 予定・例外・祝日をまとめて1回で取得
   google.script.run
-    .withSuccessHandler(function (schedules) {
-      state.schedules = schedules || [];
-      google.script.run
-        .withSuccessHandler(function (holidays) {
-          state.holidays = holidays || {};
-          showLoading(false);
-          render();
-        })
-        .withFailureHandler(function () { state.holidays = {}; showLoading(false); render(); })
-        .getHolidays(state.year, state.month);
+    .withSuccessHandler(function (data) {
+      state.schedules = (data && data.schedules) || [];
+      state.overrides = (data && data.overrides) || [];
+      // 例外を 'masterId|date' で引ける形にしておく
+      state.overrideMap = {};
+      state.overrides.forEach(function (ov) {
+        state.overrideMap[ov.masterId + '|' + ov.date] = ov;
+      });
+      state.holidays = (data && data.holidays) || {};
+      showLoading(false);
+      render();
     })
     .withFailureHandler(function (err) {
       showLoading(false);
       alert('読み込みに失敗しました: ' + err.message);
     })
-    .getSchedules();
+    .getCalendarData(state.year, state.month);
+}
+
+/** その日の例外を取得（毎週予定のみ対象） */
+function getOverride(masterId, dateStr) {
+  return state.overrideMap[masterId + '|' + dateStr] || null;
+}
+
+/**
+ * 毎週予定 s の、指定日の「実際に表示する値」を返す。
+ * 例外があればその値で上書きし（この日だけ変更）、_hidden も持たせる。
+ * 単発の予定はそのまま返す。
+ */
+function effective(s, dateStr) {
+  if (s.recurrence !== 'weekly') return s;
+  const ov = getOverride(s.id, dateStr);
+  if (!ov) return s;
+  const m = Object.assign({}, s);
+  m.title = ov.title;
+  m.place = ov.place;
+  m.blogUser = ov.blogUser;
+  m.time = ov.time;
+  m.color = ov.color || s.color;
+  m._hidden = ov.hidden;   // その日だけ非表示
+  m._ovDate = dateStr;     // 対象日
+  return m;
 }
 
 /* ---------- [4] カレンダー描画 ---------- */
@@ -65,7 +97,10 @@ function load() {
 function occursOn(s, dateStr) {
   const date = parseYmd(dateStr);
   if (s.recurrence === 'weekly') {
-    return date.getDay() === Number(s.weekday) && date >= parseYmd(s.startDate);
+    if (date.getDay() !== Number(s.weekday) || date < parseYmd(s.startDate)) return false;
+    const ov = getOverride(s.id, dateStr);
+    if (ov && ov.hidden) return false; // 「この日だけ非表示」
+    return true;
   }
   if (s.type === 'event') {
     return dateStr >= s.startDate && dateStr <= (s.endDate || s.startDate);
@@ -97,11 +132,13 @@ function render() {
   state.schedules.forEach(s => {
     if (s.type !== 'event') return;
     if (s.recurrence === 'weekly') {
-      // 毎週イベント：該当曜日ごとに1日バーを置く
+      // 毎週イベント：該当曜日ごとに1日バーを置く（例外があれば反映・非表示）
       for (let i = 0; i < 42; i++) {
         const d = addDays(gridStart, i);
         if (d.getDay() === Number(s.weekday) && d >= parseYmd(s.startDate)) {
-          eventInstances.push({ s, start: ymd(d), end: ymd(d) });
+          const eff = effective(s, ymd(d));
+          if (eff._hidden) continue;
+          eventInstances.push({ s: eff, start: ymd(d), end: ymd(d) });
         }
       }
     } else {
@@ -178,9 +215,9 @@ function render() {
       space.style.height = barsSpaceH + 'px';
       dayEl.appendChild(space);
 
-      // 練習マス（場所 / ブログ担当 / 時間）
+      // 練習マス（場所 / ブログ担当 / 時間）※例外があればその日の値で表示
       schedulesOnDate(dStr).filter(s => s.type === 'practice').forEach(s => {
-        dayEl.appendChild(buildPractice(s));
+        dayEl.appendChild(buildPractice(effective(s, dStr), dStr));
       });
 
       // マスの空きをクリック → その日に新規追加
@@ -207,7 +244,8 @@ function render() {
       bar.textContent = seg.inst.s.title || '(無題)';
       bar.addEventListener('click', function (e) {
         e.stopPropagation();
-        openModalForEdit(seg.inst.s);
+        // 帯クリック時は、そのバーの日付（開始セグメント日）を対象日にする
+        openModalForEdit(seg.inst.s, seg.inst.start);
       });
       barsLayer.appendChild(bar);
     });
@@ -217,8 +255,8 @@ function render() {
   }
 }
 
-/** 練習マス（3項目レイアウト）のDOMを作る */
-function buildPractice(s) {
+/** 練習マス（3項目レイアウト）のDOMを作る。dateStr＝このマスの日付 */
+function buildPractice(s, dateStr) {
   const el = document.createElement('div');
   el.className = 'practice';
   // 薄い背景＋枠に予定色を反映
@@ -245,7 +283,7 @@ function buildPractice(s) {
 
   el.addEventListener('click', function (e) {
     e.stopPropagation();
-    openModalForEdit(s);
+    openModalForEdit(s, dateStr);
   });
   return el;
 }
@@ -272,14 +310,20 @@ function hexToRgba(hex, a) {
 
 /* ---------- [5] モーダル（追加・編集・削除） ---------- */
 const modal = {
-  overlay: null, title: null, type: 'practice', rec: 'none', color: PRESET_COLORS[0]
+  overlay: null, title: null, type: 'practice', rec: 'none', color: PRESET_COLORS[0],
+  scope: 'day' // 毎週予定を編集するときの範囲（day=この日だけ / all=毎週すべて）
 };
 
 /** 新規追加でモーダルを開く */
 function openModalForAdd(dateStr) {
   state.editing = null;
+  state.editMaster = null;
+  state.editDate = dateStr;
+  state.editIsWeekly = false;
+  state.editHasOverride = false;
   document.getElementById('modalTitle').textContent = '予定を追加';
   document.getElementById('deleteBtn').style.display = 'none';
+  document.getElementById('revertBtn').style.display = 'none';
 
   setType('practice');
   setRec('none');
@@ -291,16 +335,40 @@ function openModalForAdd(dateStr) {
   document.getElementById('fStart').value = dateStr;
   document.getElementById('fEnd').value = dateStr;
 
+  updateScopeUI();
   renderExistingList(dateStr);
   showModal(true);
 }
 
-/** 既存予定の編集でモーダルを開く */
-function openModalForEdit(s) {
+/**
+ * 既存予定の編集でモーダルを開く。
+ * @param {Object} s        表示中の値（毎週予定は例外反映済みの effective を渡す）
+ * @param {string} dateStr  クリックしたオカレンスの日付（毎週予定の「この日だけ」用）
+ */
+function openModalForEdit(s, dateStr) {
+  // 元データ（親）を保持。scope 切替時に親／この日の値を正しく出し分けるため
+  const master = state.schedules.filter(function (x) { return x.id === s.id; })[0] || s;
   state.editing = s.id;
+  state.editMaster = master;
+  state.editDate = dateStr || s.startDate;
+  state.editIsWeekly = (master.recurrence === 'weekly');
+  state.editHasOverride = state.editIsWeekly && !!getOverride(s.id, state.editDate);
+
   document.getElementById('modalTitle').textContent = '予定を編集';
   document.getElementById('deleteBtn').style.display = 'inline-block';
+  // 既に「この日だけ」変更がある場合のみ、初期設定に戻すボタンを出す
+  document.getElementById('revertBtn').style.display = state.editHasOverride ? 'inline-block' : 'none';
 
+  // 毎週予定は既定で「この日だけ」（＝ブログ担当だけ変える運用に合わせる）
+  // setScope 側でフォームの値（親 / この日）も埋める
+  setScope(state.editIsWeekly ? 'day' : 'all');
+
+  document.getElementById('existingList').innerHTML = '';
+  showModal(true);
+}
+
+/** フォーム各項目に予定オブジェクトの値を流し込む */
+function fillForm(s) {
   setType(s.type);
   setRec(s.recurrence);
   setColor(s.color);
@@ -310,9 +378,6 @@ function openModalForEdit(s) {
   document.getElementById('fTime').value = s.time || '';
   document.getElementById('fStart').value = s.startDate;
   document.getElementById('fEnd').value = s.endDate || s.startDate;
-
-  document.getElementById('existingList').innerHTML = '';
-  showModal(true);
 }
 
 /** その日の既存予定を一覧表示（クリックで編集に切替） */
@@ -321,18 +386,19 @@ function renderExistingList(dateStr) {
   box.innerHTML = '';
   const items = schedulesOnDate(dateStr);
   items.forEach(s => {
+    const eff = effective(s, dateStr); // その日の実際の値
     const row = document.createElement('div');
     row.className = 'existing-item';
     const sw = document.createElement('span');
     sw.className = 'existing-swatch';
-    sw.style.background = s.color;
+    sw.style.background = eff.color;
     row.appendChild(sw);
     const label = document.createElement('span');
-    const kind = s.type === 'event' ? 'イベント' : '練習';
-    const name = s.type === 'event' ? (s.title || '(無題)') : (s.place || '練習');
+    const kind = eff.type === 'event' ? 'イベント' : '練習';
+    const name = eff.type === 'event' ? (eff.title || '(無題)') : (eff.place || '練習');
     label.textContent = kind + '：' + name + (s.recurrence === 'weekly' ? '（毎週）' : '');
     row.appendChild(label);
-    row.addEventListener('click', function () { openModalForEdit(s); });
+    row.addEventListener('click', function () { openModalForEdit(eff, dateStr); });
     box.appendChild(row);
   });
 }
@@ -371,6 +437,44 @@ function updateDateFields() {
   document.getElementById('startLabel').textContent = weekly ? '開始日（この曜日で毎週）' : '日付';
 }
 
+/** 変更範囲（この日だけ / 毎週すべて）を切替。範囲に応じて表示値も入れ替える */
+function setScope(scope) {
+  modal.scope = scope;
+  document.querySelectorAll('#scopeSeg .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.scope === scope);
+  });
+  // 編集中は、この日だけ＝例外反映値 / 毎週すべて＝親の値 を出す
+  if (state.editMaster) {
+    fillForm(scope === 'day' ? effective(state.editMaster, state.editDate) : state.editMaster);
+  }
+  updateScopeUI();
+}
+
+/**
+ * 範囲に応じてフォームの見せ方を調整。
+ * - 毎週予定の編集時のみ「範囲」セレクタを表示
+ * - 「この日だけ」のときは種別・繰り返し・日付欄を隠し、対象日を明示
+ *   （例外は「その日の場所/担当/時間/色」だけを持つため）
+ */
+function updateScopeUI() {
+  const weeklyEdit = !!state.editing && state.editIsWeekly;
+  document.getElementById('scopeField').style.display = weeklyEdit ? 'block' : 'none';
+
+  const dayMode = weeklyEdit && modal.scope === 'day';
+  document.getElementById('typeSeg').closest('.field').style.display = dayMode ? 'none' : 'block';
+  document.getElementById('recSeg').closest('.field').style.display = dayMode ? 'none' : 'block';
+  document.getElementById('dateFields').style.display = dayMode ? 'none' : 'flex';
+
+  const note = document.getElementById('dayTargetNote');
+  if (dayMode) {
+    note.style.display = 'block';
+    note.textContent = '対象日: ' + state.editDate + '（この日だけ変更／他の週はそのまま）';
+  } else {
+    note.style.display = 'none';
+    updateDateFields();
+  }
+}
+
 /** 色を選択（プリセット＆カラーピッカーを同期） */
 function setColor(color) {
   modal.color = color;
@@ -382,6 +486,27 @@ function setColor(color) {
 
 /** 保存 */
 function saveModal() {
+  // ---- 毎週予定の「この日だけ」変更 → 例外を保存（親はそのまま） ----
+  if (state.editing && state.editIsWeekly && modal.scope === 'day') {
+    const ov = {
+      masterId: state.editing,
+      date: state.editDate,
+      title: document.getElementById('fTitle').value,
+      place: document.getElementById('fPlace').value,
+      blogUser: document.getElementById('fBlog').value,
+      time: document.getElementById('fTime').value,
+      color: modal.color,
+      hidden: false
+    };
+    showLoading(true);
+    google.script.run
+      .withSuccessHandler(function () { showModal(false); load(); })
+      .withFailureHandler(function (err) { showLoading(false); alert('保存に失敗しました: ' + err.message); })
+      .saveOverride(ov);
+    return;
+  }
+
+  // ---- 通常保存（新規 / 単発の編集 / 毎週すべての編集） ----
   const start = document.getElementById('fStart').value;
   if (!start) { alert('日付を入力してください'); return; }
 
@@ -414,12 +539,39 @@ function saveModal() {
 /** 削除 */
 function deleteCurrent() {
   if (!state.editing) return;
-  if (!confirm('この予定を削除しますか？')) return;
+
+  // 毎週予定の「この日だけ」→ その日を非表示にする例外を保存
+  if (state.editIsWeekly && modal.scope === 'day') {
+    if (!confirm('この日だけ非表示にしますか？（他の週の予定は残ります）')) return;
+    showLoading(true);
+    google.script.run
+      .withSuccessHandler(function () { showModal(false); load(); })
+      .withFailureHandler(function (err) { showLoading(false); alert('更新に失敗しました: ' + err.message); })
+      .saveOverride({
+        masterId: state.editing, date: state.editDate,
+        title: '', place: '', blogUser: '', time: '', color: '', hidden: true
+      });
+    return;
+  }
+
+  const msg = state.editIsWeekly ? 'この毎週予定を全て削除しますか？' : 'この予定を削除しますか？';
+  if (!confirm(msg)) return;
   showLoading(true);
   google.script.run
     .withSuccessHandler(function () { showModal(false); load(); })
     .withFailureHandler(function (err) { showLoading(false); alert('削除に失敗しました: ' + err.message); })
     .deleteSchedule(state.editing);
+}
+
+/** 「この日だけ」変更を取り消して、毎週の初期設定に戻す */
+function revertOverride() {
+  if (!state.editing || !state.editDate) return;
+  if (!confirm('この日を毎週の初期設定に戻しますか？')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function () { showModal(false); load(); })
+    .withFailureHandler(function (err) { showLoading(false); alert('取り消しに失敗しました: ' + err.message); })
+    .deleteOverride(state.editing, state.editDate);
 }
 
 /* ---------- [6] イベント登録・初期化 ---------- */
@@ -459,16 +611,20 @@ function bindEvents() {
   document.getElementById('cancelBtn').addEventListener('click', () => showModal(false));
   document.getElementById('saveBtn').addEventListener('click', saveModal);
   document.getElementById('deleteBtn').addEventListener('click', deleteCurrent);
+  document.getElementById('revertBtn').addEventListener('click', revertOverride);
   document.getElementById('modalOverlay').addEventListener('click', function (e) {
     if (e.target === this) showModal(false); // 背景クリックで閉じる
   });
 
-  // 種別・繰り返しの切替
+  // 種別・繰り返し・変更範囲の切替
   document.querySelectorAll('#typeSeg .seg-btn').forEach(b => {
     b.addEventListener('click', () => setType(b.dataset.type));
   });
   document.querySelectorAll('#recSeg .seg-btn').forEach(b => {
     b.addEventListener('click', () => setRec(b.dataset.rec));
+  });
+  document.querySelectorAll('#scopeSeg .seg-btn').forEach(b => {
+    b.addEventListener('click', () => setScope(b.dataset.scope));
   });
   // カラーピッカー手動変更
   document.getElementById('fColor').addEventListener('input', function () { setColor(this.value); });

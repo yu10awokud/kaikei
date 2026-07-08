@@ -106,6 +106,8 @@ body {
   padding: 0 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   pointer-events: auto; cursor: pointer;
   box-shadow: 0 1px 2px rgba(0,0,0,.12);
+  /* 印刷（PDF）でも背景色を残す */
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 /* 期間の途中は角丸を消して連続して見せる */
 .bar.mid-start { border-top-left-radius: 0; border-bottom-left-radius: 0; }
@@ -118,6 +120,8 @@ body {
   padding: 12px 2px 12px; min-height: 54px;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; overflow: hidden;
+  /* 印刷（PDF）でも背景色を残す */
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .practice + .practice { margin-top: 3px; }
 .p-place {                                   /* マス中央：場所 */
@@ -180,6 +184,7 @@ body {
 .two-col { display: flex; gap: 10px; }
 .two-col > div { flex: 1; }
 .hint { font-size: 11px; color: var(--muted); margin: 5px 0 0; }
+.day-target { font-size: 13px; font-weight: 700; margin: 2px 0 10px; }
 
 /* セグメントボタン（種別 / 繰り返し切替） */
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
@@ -223,6 +228,8 @@ body {
 /* ===== 印刷（PDF出力）用 =====
    PDFボタン → 印刷ダイアログ → 「PDFに保存」で1枚のカレンダーになります */
 @media print {
+  /* 印刷時は全要素で背景色・色をそのまま出す（色が枠線だけになる現象の対策） */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   body { background: #fff; }
   .app-header .header-actions, .month-nav .nav-btn, .legend { display: none; }
   .modal-overlay, .loading { display: none !important; }
