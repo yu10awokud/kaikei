@@ -1,0 +1,8 @@
+# 過去問 → 問題集PDF 生成ツール 依存パッケージ
+#
+# Anthropic 公式 SDK（Vision / adaptive thinking を使うため新しめのバージョンを推奨）
+anthropic>=0.69.0
+# PDF 分割・画像化・図の切り出し
+PyMuPDF>=1.24.0
+# LaTeX テンプレート
+Jinja2>=3.1.0

@@ -1,0 +1,81 @@
+%# Jinja2 テンプレート（LaTeX と衝突しないよう区切り文字を変更している）
+%#   変数: \VAR{ ... }   制御行: 行頭 %%   コメント行: 行頭 %#
+%#   （LaTeX の { } / % コメントはそのまま使える）
+\documentclass[11pt,a4paper]{jlreq}
+
+%# --- 日本語組版: jlreq + luatexja-fontspec、明朝・ゴシックとも Noto Serif 固定 ---
+\usepackage{luatexja-fontspec}
+\setmainjfont{Noto Serif CJK JP}
+\setsansjfont{Noto Serif CJK JP}
+
+%# --- 数式・図・色 ---
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+
+%# --- ヘッダ/フッタ（fancyhdr 使用時は headheight を 17pt 以上に）---
+\usepackage{fancyhdr}
+\setlength{\headheight}{17pt}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small \VAR{title}}
+\fancyhead[R]{\small \VAR{subject}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+%# --- overfull 抑制 ---
+\sloppy
+\setlength{\emergencystretch}{3em}
+
+%# --- 要確認（needs_review）用の赤枠 ---
+\newtcolorbox{reviewbox}{%
+  colframe=red!70!black, colback=red!5!white,
+  coltitle=white, fonttitle=\bfseries,
+  title=要確認（自動判定）, breakable}
+
+\begin{document}
+
+\begin{center}
+  {\LARGE\bfseries \VAR{title}}\par
+  \smallskip
+  {\normalsize \VAR{subject}}
+\end{center}
+\bigskip
+
+%% for p in problems
+\noindent{\large\bfseries 【\VAR{p.year}年】 問\VAR{p.number}}\par
+{\footnotesize\color{gray}出典: \VAR{p.source_name}\ p.\VAR{p.source_page}}\par
+\smallskip
+
+\noindent\textbf{問題}\par
+\VAR{p.statement_latex}\par
+%% if p.figure_file
+\begin{center}\includegraphics[width=0.8\linewidth,keepaspectratio]{\VAR{p.figure_file}}\end{center}
+%% endif
+\smallskip
+
+%% if p.needs_review
+\begin{reviewbox}
+\noindent\textbf{解答}\par
+\VAR{p.answer_latex}\par
+\smallskip
+\noindent\textbf{解説}\par
+\VAR{p.explanation_latex}
+%% if p.review_reason
+\par\smallskip{\small\itshape （\VAR{p.review_reason}）}
+%% endif
+\end{reviewbox}
+%% else
+\noindent\textbf{解答}\par
+\VAR{p.answer_latex}\par
+\smallskip
+\noindent\textbf{解説}\par
+\VAR{p.explanation_latex}
+%% endif
+
+\par\bigskip\hrule\bigskip
+%% endfor
+
+\end{document}

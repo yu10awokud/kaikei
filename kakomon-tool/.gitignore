@@ -1,0 +1,12 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 入出力・中間生成物（.gitkeep は残す）
+input/*
+!input/.gitkeep
+work/*
+!work/.gitkeep
+output/*
+!output/.gitkeep
