@@ -17,6 +17,7 @@
       <button class="nav-item active" data-screen="input">📝 記録入力</button>
       <button class="nav-item" data-screen="history">📅 履歴一覧</button>
       <button class="nav-item" data-screen="analysis">📈 分析</button>
+      <button class="nav-item" data-screen="meets">🏅 試合記録</button>
       <button class="nav-item" data-screen="events">🏷 種目マスタ</button>
       <button class="nav-item" data-screen="pools">🏊 プールマスタ</button>
     </nav>
@@ -103,16 +104,28 @@
 
       <!-- ===== ②履歴一覧 ===== -->
       <section id="history" class="screen">
-        <div class="filter-bar">
-          <label class="field-label">種目で絞り込み</label>
-          <select id="historyFilter" class="input"></select>
+        <div class="filter-bar row2">
+          <div>
+            <label class="field-label">種目で絞り込み</label>
+            <select id="historyFilter" class="input"></select>
+          </div>
+          <div>
+            <label class="field-label">日付で絞り込み</label>
+            <input type="date" id="historyDate" class="input">
+          </div>
         </div>
+        <button id="historyClearDate" class="btn secondary block hidden" style="margin-bottom:12px;">日付の絞り込みを解除</button>
         <div id="historyList" class="history-list"></div>
       </section>
 
       <!-- ===== ③分析 ===== -->
       <section id="analysis" class="screen">
-        <div class="row2">
+        <div class="format-tabs" id="analysisModeTabs">
+          <button type="button" class="format-tab active" data-mode="time">タイム推移</button>
+          <button type="button" class="format-tab" data-mode="distance">総距離推移</button>
+        </div>
+
+        <div id="anTimeFilters" class="row2">
           <div>
             <label class="field-label">種目</label>
             <select id="anEvent" class="input"></select>
@@ -134,11 +147,51 @@
           <button class="period-tab active" data-period="all">全期間</button>
         </div>
 
-        <div class="chart-hint">↑ 上にいくほど速い（タイムが小さい）</div>
+        <div class="chart-hint" id="chartHint">↑ 上にいくほど速い（タイムが小さい）</div>
+        <div class="chart-legend hidden" id="chartLegend">
+          <span class="lg-item"><span class="lg-dot blue"></span>練習(TT)</span>
+          <span class="lg-item"><span class="lg-dot red"></span>試合</span>
+        </div>
         <div class="chart-wrap">
           <canvas id="analysisChart"></canvas>
         </div>
         <div id="analysisEmpty" class="empty-msg hidden">該当する記録がありません</div>
+      </section>
+
+      <!-- ===== 試合記録 ===== -->
+      <section id="meets" class="screen">
+        <div class="form-block">
+          <label class="field-label">大会名</label>
+          <input type="text" id="meetName" class="input" placeholder="例: 県選手権">
+          <div class="row2">
+            <div>
+              <label class="field-label">日付</label>
+              <input type="date" id="meetDate" class="input">
+            </div>
+            <div>
+              <label class="field-label">水路タイプ</label>
+              <select id="meetLane" class="input">
+                <option value="長水路">長水路</option>
+                <option value="短水路">短水路</option>
+              </select>
+            </div>
+          </div>
+          <div class="row2">
+            <div>
+              <label class="field-label">種目</label>
+              <select id="meetEvent" class="input"></select>
+            </div>
+            <div>
+              <label class="field-label">距離 (m)</label>
+              <input type="number" id="meetDistance" class="input" inputmode="numeric" placeholder="100">
+            </div>
+          </div>
+          <label class="field-label">タイム</label>
+          <input type="text" id="meetTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
+          <button id="saveMeetBtn" class="btn primary block big">試合記録を保存</button>
+        </div>
+        <h3 class="section-title">試合記録一覧</h3>
+        <div id="meetList" class="history-list"></div>
       </section>
 
       <!-- ===== ④種目マスタ ===== -->

@@ -12,6 +12,8 @@ var state = {
   editTimes: [],       // 編集モーダル内のタイム記録
   editLogId: null,
   analysisPeriod: 'all',
+  analysisMode: 'time',   // 'time'（タイム推移） | 'distance'（総距離推移）
+  historyLogs: [],        // 履歴タブで読み込んだログ（日付絞り込み用に保持）
   chart: null
 };
 
@@ -82,7 +84,7 @@ function formatSeconds(sec) {
 // =====================================================
 // ナビゲーション（ドロワー + SPA切替）
 // =====================================================
-var TITLES = { input: '記録入力', history: '履歴一覧', analysis: '分析', events: '種目マスタ', pools: 'プールマスタ' };
+var TITLES = { input: '記録入力', history: '履歴一覧', analysis: '分析', meets: '試合記録', events: '種目マスタ', pools: 'プールマスタ' };
 
 function openDrawer(b) {
   $('drawer').classList.toggle('open', b);
@@ -101,6 +103,7 @@ function switchScreen(name) {
 function onScreenEnter(name) {
   if (name === 'history') loadHistory();
   else if (name === 'analysis') loadAnalysis();
+  else if (name === 'meets') loadMeets();
   else if (name === 'events') renderEventMaster();
   else if (name === 'pools') renderPoolMaster();
 }
@@ -136,6 +139,7 @@ function refreshAllSelects() {
   fillEventSelect($('anEvent'), false);
   fillEventSelect($('editEvent'), false);
   fillPoolSelect($('editPool'));
+  fillEventSelect($('meetEvent'), false);
 }
 
 // =====================================================
@@ -145,7 +149,7 @@ function refreshAllSelects() {
 // ---- 形式の切り替え（TT / Short / Middle） ----
 function switchFormat(fmt) {
   state.inputFormat = fmt;
-  document.querySelectorAll('.format-tab').forEach(function (t) {
+  document.querySelectorAll('#formatTabs .format-tab').forEach(function (t) {
     t.classList.toggle('active', t.dataset.format === fmt);
   });
   var isTT = (fmt === 'TT');
@@ -321,11 +325,21 @@ function loadHistory() {
   showLoading(true);
   call('getHistory', [filter]).then(function (logs) {
     showLoading(false);
-    renderHistory(logs);
+    state.historyLogs = logs;
+    applyHistoryDateFilter();
   }).catch(function (err) {
     showLoading(false);
     toast('取得に失敗: ' + err.message, true);
   });
+}
+
+// 日付ピッカーの値で履歴を絞り込んで表示
+function applyHistoryDateFilter() {
+  var date = $('historyDate').value;
+  $('historyClearDate').classList.toggle('hidden', !date);
+  var logs = state.historyLogs;
+  if (date) logs = logs.filter(function (l) { return l.date === date; });
+  renderHistory(logs);
 }
 
 function renderHistory(logs) {
@@ -480,67 +494,107 @@ function saveEdit() {
 // =====================================================
 // ③ 分析
 // =====================================================
+function destroyChart() { if (state.chart) { state.chart.destroy(); state.chart = null; } }
+function showAnalysisEmpty(msg) {
+  var e = $('analysisEmpty');
+  e.textContent = msg;
+  e.classList.remove('hidden');
+}
+function hideAnalysisEmpty() { $('analysisEmpty').classList.add('hidden'); }
+
+// タイム推移 / 総距離推移 の切替
+function switchAnalysisMode(mode) {
+  state.analysisMode = mode;
+  document.querySelectorAll('#analysisModeTabs .format-tab').forEach(function (t) {
+    t.classList.toggle('active', t.dataset.mode === mode);
+  });
+  var isTime = (mode === 'time');
+  $('anTimeFilters').classList.toggle('hidden', !isTime);
+  $('chartLegend').classList.toggle('hidden', !isTime);
+  $('chartHint').textContent = isTime
+    ? '↑ 上にいくほど速い（タイムが小さい）'
+    : '日ごとの総距離(m)の推移';
+  loadAnalysis();
+}
+
 function loadAnalysis() {
+  if (state.analysisMode === 'distance') {
+    showLoading(true);
+    call('getDistanceTrend', [state.analysisPeriod]).then(function (points) {
+      showLoading(false);
+      renderDistanceChart(points);
+    }).catch(function (err) {
+      showLoading(false);
+      toast('取得に失敗: ' + err.message, true);
+    });
+    return;
+  }
+  // タイム推移
   var eventName = $('anEvent').value;
   if (!eventName) {
-    if (state.chart) { state.chart.destroy(); state.chart = null; }
-    $('analysisEmpty').classList.remove('hidden');
-    $('analysisEmpty').textContent = '種目を登録・選択してください';
+    destroyChart();
+    showAnalysisEmpty('種目を登録・選択してください');
     return;
   }
   var lane = $('anLane').value;
   showLoading(true);
-  call('getAnalysisData', [eventName, lane, state.analysisPeriod]).then(function (points) {
+  call('getAnalysisData', [eventName, lane, state.analysisPeriod]).then(function (data) {
     showLoading(false);
-    renderChart(points);
+    renderTimeChart(data);
   }).catch(function (err) {
     showLoading(false);
     toast('取得に失敗: ' + err.message, true);
   });
 }
 
-function renderChart(points) {
-  var emptyEl = $('analysisEmpty');
-  if (!points.length) {
-    if (state.chart) { state.chart.destroy(); state.chart = null; }
-    emptyEl.textContent = '該当する記録がありません';
-    emptyEl.classList.remove('hidden');
+// 練習(TT)＝青丸、試合＝赤丸を重ねて描画
+function renderTimeChart(data) {
+  var practice = (data && data.practice) || [];
+  var meet = (data && data.meet) || [];
+  if (!practice.length && !meet.length) {
+    destroyChart();
+    showAnalysisEmpty('該当する記録がありません');
     return;
   }
-  emptyEl.classList.add('hidden');
+  hideAnalysisEmpty();
 
-  var labels = points.map(function (p) { return p.date; });
-  var data = points.map(function (p) { return p.seconds; });
+  // 全ての点を日付昇順に並べ、同じラベル配列を両系列で共有（他方はnull）
+  var combined = [];
+  practice.forEach(function (p) { combined.push({ date: p.date, seconds: p.seconds, kind: 'practice', ref: p }); });
+  meet.forEach(function (m) { combined.push({ date: m.date, seconds: m.seconds, kind: 'meet', ref: m }); });
+  combined.sort(function (a, b) { return a.date.localeCompare(b.date); });
 
-  if (state.chart) { state.chart.destroy(); }
+  var labels = combined.map(function (c) { return c.date; });
+  var practiceData = combined.map(function (c) { return c.kind === 'practice' ? c.seconds : null; });
+  var meetData = combined.map(function (c) { return c.kind === 'meet' ? c.seconds : null; });
+
+  destroyChart();
   var ctx = $('analysisChart').getContext('2d');
   state.chart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: labels,
-      datasets: [{
-        label: 'タイム(秒)',
-        data: data,
-        borderColor: '#1789c9',
-        backgroundColor: 'rgba(23,137,201,.12)',
-        borderWidth: 2.5,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        pointBackgroundColor: '#0f5c8c',
-        tension: 0.2,
-        fill: true
-      }]
+      datasets: [
+        {
+          label: '練習(TT)', data: practiceData,
+          borderColor: '#1789c9', backgroundColor: 'rgba(23,137,201,.12)',
+          borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7,
+          pointBackgroundColor: '#0f5c8c', tension: 0.2, spanGaps: true, fill: false
+        },
+        {
+          label: '試合', data: meetData,
+          borderColor: '#e74c3c', backgroundColor: '#e74c3c', showLine: false,
+          pointRadius: 6, pointHoverRadius: 8, pointBackgroundColor: '#e74c3c'
+        }
+      ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       scales: {
         y: {
           reverse: true, // 上に行くほどタイムが小さい＝速い
           title: { display: true, text: 'タイム(秒)　上ほど速い' },
-          ticks: {
-            callback: function (v) { return formatSeconds(v); }
-          }
+          ticks: { callback: function (v) { return formatSeconds(v); } }
         },
         x: { ticks: { maxRotation: 60, minRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
       },
@@ -548,19 +602,143 @@ function renderChart(points) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: function (items) { return points[items[0].dataIndex].date; },
+            title: function (items) { return combined[items[0].dataIndex].date; },
             label: function (item) {
-              var p = points[item.dataIndex];
-              return [
-                '距離: ' + p.distance + 'm',
-                'タイム: ' + p.timeText,
-                'プール: ' + (p.pool || '-') + (p.lane ? '（' + p.lane + '）' : '')
-              ];
+              var c = combined[item.dataIndex];
+              var p = c.ref;
+              if (c.kind === 'meet') {
+                return ['🏅 ' + (p.meetName || '試合'), '距離: ' + p.distance + 'm',
+                        'タイム: ' + p.timeText, '水路: ' + (p.lane || '-')];
+              }
+              return ['練習(TT)', '距離: ' + p.distance + 'm', 'タイム: ' + p.timeText,
+                      'プール: ' + (p.pool || '-') + (p.lane ? '（' + p.lane + '）' : '')];
             }
           }
         }
       }
     }
+  });
+}
+
+// 総距離の推移（緑の折れ線、Y軸は通常向き）
+function renderDistanceChart(points) {
+  if (!points.length) {
+    destroyChart();
+    showAnalysisEmpty('該当する記録がありません');
+    return;
+  }
+  hideAnalysisEmpty();
+  var labels = points.map(function (p) { return p.date; });
+  var data = points.map(function (p) { return p.distance; });
+
+  destroyChart();
+  var ctx = $('analysisChart').getContext('2d');
+  state.chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '総距離(m)', data: data,
+        borderColor: '#00b894', backgroundColor: 'rgba(0,184,148,.15)',
+        borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7,
+        pointBackgroundColor: '#009e80', tension: 0.2, fill: true
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true, title: { display: true, text: '総距離 (m)' } },
+        x: { ticks: { maxRotation: 60, minRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function (item) { return '総距離: ' + points[item.dataIndex].distance + 'm'; }
+          }
+        }
+      }
+    }
+  });
+}
+
+// =====================================================
+// 試合記録
+// =====================================================
+function loadMeets() {
+  $('meetDate').value = $('meetDate').value || todayStr();
+  showLoading(true);
+  call('getMeetRecords', []).then(function (records) {
+    showLoading(false);
+    renderMeets(records);
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
+  });
+}
+
+function renderMeets(records) {
+  var box = $('meetList');
+  box.innerHTML = '';
+  if (!records.length) {
+    box.appendChild(el('div', 'empty-hint', '試合記録がありません'));
+    return;
+  }
+  records.forEach(function (m) {
+    var card = el('div', 'history-card');
+    var head = el('div', 'history-head');
+    head.innerHTML = '<span class="history-date">' + esc(m.meetName || '(大会名なし)') + '</span>' +
+      '<span class="history-dist">' + esc(m.date) + '</span>';
+    card.appendChild(head);
+    var body = el('div', 'history-memo');
+    body.innerHTML = '<strong>' + esc(m.event) + ' ' + esc(m.distance) + 'm</strong>　' +
+      '<span class="tm">' + esc(m.timeText) + '</span>　<span class="master-sub">' + esc(m.lane) + '</span>';
+    card.appendChild(body);
+    var actions = el('div', 'history-actions');
+    var delBtn = el('button', 'btn danger', '削除');
+    delBtn.onclick = function () { deleteMeet(m); };
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+    box.appendChild(card);
+  });
+}
+
+function saveMeet() {
+  var payload = {
+    meetName: $('meetName').value,
+    date: $('meetDate').value,
+    lane: $('meetLane').value,
+    event: $('meetEvent').value,
+    distance: $('meetDistance').value ? Number($('meetDistance').value) : 0,
+    time: $('meetTime').value
+  };
+  if (!payload.date) { toast('日付を入力してください', true); return; }
+  if (!payload.meetName.trim()) { toast('大会名を入力してください', true); return; }
+  if (!payload.event) { toast('種目を登録・選択してください', true); return; }
+  showLoading(true);
+  call('saveMeetRecord', [payload]).then(function () {
+    showLoading(false);
+    toast('保存しました');
+    $('meetName').value = '';
+    $('meetDistance').value = '';
+    $('meetTime').value = '';
+    loadMeets();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('保存に失敗: ' + err.message, true);
+  });
+}
+
+function deleteMeet(m) {
+  if (!confirm(m.meetName + '（' + m.date + '）の試合記録を削除しますか？')) return;
+  showLoading(true);
+  call('deleteMeetRecord', [m.id]).then(function () {
+    showLoading(false);
+    toast('削除しました');
+    loadMeets();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('削除に失敗: ' + err.message, true);
   });
 }
 
@@ -680,7 +858,7 @@ function bindEvents() {
   });
 
   // 記録入力
-  document.querySelectorAll('.format-tab').forEach(function (tab) {
+  document.querySelectorAll('#formatTabs .format-tab').forEach(function (tab) {
     tab.onclick = function () { switchFormat(tab.dataset.format); };
   });
   $('addTimeBtn').onclick = addPendingTime;
@@ -693,6 +871,8 @@ function bindEvents() {
 
   // 履歴
   $('historyFilter').onchange = loadHistory;
+  $('historyDate').onchange = applyHistoryDateFilter;
+  $('historyClearDate').onclick = function () { $('historyDate').value = ''; applyHistoryDateFilter(); };
 
   // 編集モーダル
   $('editAddTimeBtn').onclick = addEditTime;
@@ -701,6 +881,9 @@ function bindEvents() {
   $('editOverlay').onclick = function (e) { if (e.target === $('editOverlay')) closeEdit(); };
 
   // 分析
+  document.querySelectorAll('#analysisModeTabs .format-tab').forEach(function (tab) {
+    tab.onclick = function () { switchAnalysisMode(tab.dataset.mode); };
+  });
   $('anEvent').onchange = loadAnalysis;
   $('anLane').onchange = loadAnalysis;
   document.querySelectorAll('.period-tab').forEach(function (tab) {
@@ -711,6 +894,9 @@ function bindEvents() {
       loadAnalysis();
     };
   });
+
+  // 試合記録
+  $('saveMeetBtn').onclick = saveMeet;
 
   // マスタ
   $('addEventBtn').onclick = addEvent;

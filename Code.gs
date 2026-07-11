@@ -16,6 +16,7 @@ const SHEET_PRACTICE = 'PracticeLog';   // 練習ログ
 const SHEET_TIME     = 'TimeRecord';    // タイム記録
 const SHEET_EVENT    = 'EventMaster';   // 種目マスタ
 const SHEET_POOL     = 'PoolMaster';    // プールマスタ
+const SHEET_MEET     = 'MeetRecord';    // 試合記録
 
 const STATUS_ACTIVE   = '有効';
 const STATUS_ARCHIVED = 'アーカイブ';
@@ -96,6 +97,16 @@ function setupSheets_() {
       const rows = DEFAULT_POOLS.map(p => [Utilities.getUuid(), p.name, p.lane, STATUS_ACTIVE]);
       pool.getRange(2, 1, rows.length, 4).setValues(rows);
     }
+  }
+
+  // 試合記録
+  let meet = ss.getSheetByName(SHEET_MEET);
+  if (!meet) {
+    meet = ss.insertSheet(SHEET_MEET);
+    meet.getRange(1, 1, 1, 7)
+      .setValues([['ID', '大会名', '日付', '水路タイプ', '種目', '距離', 'タイム(秒)']])
+      .setFontWeight('bold');
+    meet.setFrozenRows(1);
   }
 
   // デフォルトの空シートが残っていれば削除
@@ -388,32 +399,35 @@ function deleteTimeRecordsByLogId_(logId) {
 
 // ===== 分析データ =====
 
+/** 期間指定（week/month/3month/all）から下限日付文字列を求める。all等はnull。 */
+function periodMinDate_(period, tz) {
+  const days = { week: 7, month: 30, '3month': 90 };
+  if (!days[period]) return null;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - days[period]);
+  return Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+}
+
 /**
- * 種目・水路タイプ・期間で絞り込んだタイム記録を日付昇順で返す。
- * eventName : 種目名
- * laneType  : '長水路' | '短水路' | '両方'
- * period    : 'week'(7日) | 'month'(30日) | '3month'(90日) | 'all'
+ * 種目・水路タイプ・期間で絞り込んだタイムを日付昇順で返す。
+ * 練習（TT）と試合記録の両方を返す。
+ *   { practice: [...], meet: [...] }
+ * laneType : '長水路' | '短水路' | '両方'
+ * period   : 'week'(7日) | 'month'(30日) | '3month'(90日) | 'all'
  */
 function getAnalysisData(eventName, laneType, period) {
   setupSheets_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
   const laneMap = poolLaneMap_();
+  const minDate = periodMinDate_(period, tz);
 
-  // 期間の下限日付を求める
-  let minDate = null;
-  const days = { week: 7, month: 30, '3month': 90 };
-  if (days[period]) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - days[period]);
-    minDate = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
-  }
-
-  const values = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
-  const points = [];
-  for (let i = 1; i < values.length; i++) {
-    const row = values[i];
+  // ---- 練習タイム（TTのみ） ----
+  const timeValues = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
+  const practice = [];
+  for (let i = 1; i < timeValues.length; i++) {
+    const row = timeValues[i];
     if (!row[0]) continue;
     if (String(row[3]) !== eventName) continue;
 
@@ -428,7 +442,7 @@ function getAnalysisData(eventName, laneType, period) {
     const lane = laneMap[pool] || '';
     if (laneType !== '両方' && lane !== laneType) continue;
 
-    points.push({
+    practice.push({
       date: dateStr,
       distance: Number(row[4]),
       seconds: Number(row[5]),
@@ -437,9 +451,128 @@ function getAnalysisData(eventName, laneType, period) {
       lane: lane
     });
   }
+  practice.sort((a, b) => a.date.localeCompare(b.date));
 
-  points.sort((a, b) => a.date.localeCompare(b.date));
-  return points;
+  // ---- 試合タイム ----
+  const meetValues = ss.getSheetByName(SHEET_MEET).getDataRange().getValues();
+  const meet = [];
+  for (let i = 1; i < meetValues.length; i++) {
+    const row = meetValues[i];
+    if (!row[0]) continue;
+    if (String(row[4]) !== eventName) continue;
+
+    const dateStr = fmtDate_(row[2], tz);
+    if (minDate && dateStr < minDate) continue;
+
+    const lane = String(row[3] || '');
+    if (laneType !== '両方' && lane !== laneType) continue;
+
+    meet.push({
+      date: dateStr,
+      meetName: String(row[1] || ''),
+      distance: Number(row[5]),
+      seconds: Number(row[6]),
+      timeText: formatSeconds_(Number(row[6])),
+      lane: lane
+    });
+  }
+  meet.sort((a, b) => a.date.localeCompare(b.date));
+
+  return { practice: practice, meet: meet };
+}
+
+/**
+ * 期間内の総距離の推移を返す（同一日は合計）。日付昇順。
+ *   [ { date, distance }, ... ]
+ */
+function getDistanceTrend(period) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const minDate = periodMinDate_(period, tz);
+
+  const values = ss.getSheetByName(SHEET_PRACTICE).getDataRange().getValues();
+  const byDate = {};
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    const dateStr = fmtDate_(row[1], tz);
+    if (minDate && dateStr < minDate) continue;
+    byDate[dateStr] = (byDate[dateStr] || 0) + (Number(row[2]) || 0);
+  }
+  return Object.keys(byDate).sort().map(function (d) {
+    return { date: d, distance: byDate[d] };
+  });
+}
+
+// ===== 試合記録 =====
+
+/** 試合記録を日付の新しい順で返す */
+function getMeetRecords() {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const values = ss.getSheetByName(SHEET_MEET).getDataRange().getValues();
+  const records = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    records.push({
+      id: String(row[0]),
+      meetName: String(row[1] || ''),
+      date: fmtDate_(row[2], tz),
+      lane: String(row[3] || ''),
+      event: String(row[4] || ''),
+      distance: Number(row[5]) || 0,
+      seconds: Number(row[6]) || 0,
+      timeText: formatSeconds_(Number(row[6]) || 0)
+    });
+  }
+  records.sort((a, b) => b.date.localeCompare(a.date));
+  return records;
+}
+
+/**
+ * 試合記録を保存（id無しで新規、有りで更新）。
+ * payload = { id?, meetName, date, lane, event, distance, time }
+ */
+function saveMeetRecord(payload) {
+  setupSheets_();
+  if (!payload || !payload.date) throw new Error('日付を入力してください');
+  if (!String(payload.meetName || '').trim()) throw new Error('大会名を入力してください');
+  if (payload.lane !== '長水路' && payload.lane !== '短水路') {
+    throw new Error('水路タイプを選択してください');
+  }
+  if (!String(payload.event || '').trim()) throw new Error('種目を選択してください');
+  const seconds = parseTimeToSeconds_(payload.time);
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_MEET);
+  const id = payload.id || Utilities.getUuid();
+  const row = [
+    id,
+    String(payload.meetName).trim(),
+    payload.date,
+    payload.lane,
+    String(payload.event).trim(),
+    Number(payload.distance) || 0,
+    seconds
+  ];
+  if (payload.id) {
+    const rowIndex = findRowById_(sheet, payload.id);
+    if (rowIndex > 0) {
+      sheet.getRange(rowIndex, 1, 1, 7).setValues([row]);
+      return { ok: true, id: id };
+    }
+  }
+  sheet.appendRow(row);
+  return { ok: true, id: id };
+}
+
+function deleteMeetRecord(id) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_MEET);
+  const rowIndex = findRowById_(sheet, id);
+  if (rowIndex > 0) sheet.deleteRow(rowIndex);
+  return { ok: true };
 }
 
 // ===== 初期表示用のまとめ取得 =====
