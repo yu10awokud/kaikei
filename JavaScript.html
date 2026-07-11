@@ -1,298 +1,628 @@
 <script>
-// ===== 状態 =====
+// =====================================================
+// 水泳練習記録アプリ クライアントJS
+// =====================================================
+
+// ---- 状態 ----
 var state = {
-  year:  new Date().getFullYear(),
-  month: new Date().getMonth() + 1, // 1〜12
-  settings: { '時給A': 4200, '時給B': 3500, '生徒A名': '生徒A', '生徒B名': '生徒B' },
-  tutorRecords: [],
-  swingRecords: [],
-  selectedDate: null
+  events: [],          // 有効な種目マスタ
+  pools: [],           // 有効なプールマスタ
+  pending: [],         // 入力画面で追加待ちのタイム記録
+  editTimes: [],       // 編集モーダル内のタイム記録
+  editLogId: null,
+  analysisPeriod: 'all',
+  chart: null
 };
 
-// ===== ユーティリティ =====
-function yen(n) {
-  n = Math.round(Number(n) || 0);
-  var s = (n < 0 ? '-' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
-  return s;
+// ---- ショートカット ----
+function $(id) { return document.getElementById(id); }
+function el(tag, cls, text) {
+  var e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
 }
-function diffText(n) {
-  n = Math.round(Number(n) || 0);
-  var sign = n > 0 ? '+' : (n < 0 ? '-' : '±');
-  return sign + '¥' + Math.abs(n).toLocaleString('ja-JP');
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
-function diffClass(n) { return n > 0 ? 'plus' : (n < 0 ? 'minus' : ''); }
-function pad(n) { return n < 10 ? '0' + n : '' + n; }
-function loading(on) { document.getElementById('loading').classList.toggle('show', on); }
+function todayStr() {
+  var d = new Date();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
+}
 
-// google.script.run を Promise で扱う
+// ---- ローディング / トースト ----
+function showLoading(b) { $('loading').classList.toggle('show', b); }
+function toast(msg, isError) {
+  var t = $('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(function () { t.className = 'toast'; }, 2600);
+}
+
+// ---- サーバー呼び出しをPromise化 ----
 function call(fn, args) {
   return new Promise(function (resolve, reject) {
-    var runner = google.script.run
+    google.script.run
       .withSuccessHandler(resolve)
-      .withFailureHandler(reject);
-    runner[fn].apply(runner, args || []);
+      .withFailureHandler(reject)[fn].apply(google.script.run, args || []);
   });
 }
 
-// ===== 初期化 =====
-document.addEventListener('DOMContentLoaded', function () {
-  // タブ切り替え
-  document.querySelectorAll('.tab').forEach(function (t) {
-    t.addEventListener('click', function () {
-      document.querySelectorAll('.tab').forEach(function (x) { x.classList.remove('active'); });
-      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
-      t.classList.add('active');
-      document.getElementById(t.dataset.tab).classList.add('active');
-    });
-  });
-
-  document.getElementById('prevMonth').addEventListener('click', function () { changeMonth(-1); });
-  document.getElementById('nextMonth').addEventListener('click', function () { changeMonth(1); });
-
-  document.getElementById('swingAddBtn').addEventListener('click', addSwing);
-  document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
-
-  document.getElementById('modalAddBtn').addEventListener('click', addTutorFromModal);
-  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
-  document.getElementById('modalOverlay').addEventListener('click', function (e) {
-    if (e.target.id === 'modalOverlay') closeModal();
-  });
-
-  // スイングの日付デフォルト＝今日
-  document.getElementById('swingDate').value = isoToday();
-
-  loadSettings().then(refreshAll);
-});
-
-function isoToday() {
-  var d = new Date();
-  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+// =====================================================
+// タイム変換（クライアント側：追加時の即時検証・表示用）
+// =====================================================
+function parseTimeToSeconds(input) {
+  var s = String(input == null ? '' : input).trim();
+  if (s === '') throw new Error('タイムを入力してください');
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    var v = Number(s);
+    if (v < 0) throw new Error('タイムは0以上で入力してください');
+    return Math.round(v * 100) / 100;
+  }
+  var m = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
+  if (!m) throw new Error('タイムの形式が不正です（例: 1:19.50 または 30.20）');
+  var total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseFloat(m[3]) : 0);
+  return Math.round(total * 100) / 100;
+}
+function formatSeconds(sec) {
+  var v = Number(sec) || 0;
+  if (v >= 60) {
+    var mm = Math.floor(v / 60);
+    var ss = (v - mm * 60).toFixed(2);
+    if (ss.length < 5) ss = '0' + ss;
+    return mm + ':' + ss;
+  }
+  return v.toFixed(2);
 }
 
-function changeMonth(delta) {
-  var m = state.month + delta;
-  var y = state.year;
-  if (m < 1) { m = 12; y--; }
-  if (m > 12) { m = 1; y++; }
-  state.month = m; state.year = y;
-  refreshAll();
+// =====================================================
+// ナビゲーション（ドロワー + SPA切替）
+// =====================================================
+var TITLES = { input: '記録入力', history: '履歴一覧', analysis: '分析', events: '種目マスタ', pools: 'プールマスタ' };
+
+function openDrawer(b) {
+  $('drawer').classList.toggle('open', b);
+  $('drawerOverlay').classList.toggle('show', b);
+}
+function switchScreen(name) {
+  document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('active'); });
+  $(name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(function (n) {
+    n.classList.toggle('active', n.dataset.screen === name);
+  });
+  $('screenTitle').textContent = TITLES[name] || '';
+  openDrawer(false);
+  onScreenEnter(name);
+}
+function onScreenEnter(name) {
+  if (name === 'history') loadHistory();
+  else if (name === 'analysis') loadAnalysis();
+  else if (name === 'events') renderEventMaster();
+  else if (name === 'pools') renderPoolMaster();
 }
 
-// ===== データ読み込み＆描画 =====
-function refreshAll() {
-  loading(true);
-  document.getElementById('currentMonthLabel').textContent = state.year + '年' + state.month + '月';
-  return Promise.all([
-    call('getDashboard', [state.year, state.month]),
-    call('getTutorRecords', [state.year, state.month]),
-    call('getSwingRecords', [state.year, state.month])
-  ]).then(function (res) {
-    renderDashboard(res[0]);
-    state.tutorRecords = res[1];
-    state.swingRecords = res[2];
-    renderCalendar();
-    renderSwing();
-    loading(false);
+// =====================================================
+// マスタのプルダウン反映
+// =====================================================
+function fillEventSelect(sel, includeAllOption) {
+  sel.innerHTML = '';
+  if (includeAllOption) {
+    var o = el('option', null, 'すべて');
+    o.value = '';
+    sel.appendChild(o);
+  }
+  state.events.forEach(function (ev) {
+    var o = el('option', null, ev.name);
+    o.value = ev.name;
+    sel.appendChild(o);
+  });
+}
+function fillPoolSelect(sel) {
+  sel.innerHTML = '';
+  state.pools.forEach(function (p) {
+    var o = el('option', null, p.name + '（' + p.lane + '）');
+    o.value = p.name;
+    sel.appendChild(o);
+  });
+}
+function refreshAllSelects() {
+  fillEventSelect($('inEvent'), false);
+  fillPoolSelect($('inPool'));
+  fillEventSelect($('historyFilter'), true);
+  fillEventSelect($('anEvent'), false);
+  fillEventSelect($('editEvent'), false);
+  fillPoolSelect($('editPool'));
+}
+
+// =====================================================
+// ① 記録入力
+// =====================================================
+function addPendingTime() {
+  var event = $('inEvent').value;
+  var distance = $('inTimeDistance').value;
+  var timeRaw = $('inTime').value;
+  var pool = $('inPool').value;
+
+  if (!event) { toast('種目を登録・選択してください', true); return; }
+  if (!distance) { toast('距離を入力してください', true); return; }
+  if (!pool) { toast('プールを登録・選択してください', true); return; }
+  var seconds;
+  try { seconds = parseTimeToSeconds(timeRaw); }
+  catch (e) { toast(e.message, true); return; }
+
+  state.pending.push({
+    event: event, distance: Number(distance), time: timeRaw.trim(),
+    seconds: seconds, pool: pool
+  });
+  $('inTimeDistance').value = '';
+  $('inTime').value = '';
+  renderPending();
+}
+
+function renderPending() {
+  var ul = $('pendingList');
+  ul.innerHTML = '';
+  state.pending.forEach(function (t, i) {
+    var li = el('li');
+    var info = el('div', 'pending-info');
+    info.innerHTML = '<span class="ev">' + esc(t.event) + '</span> ' +
+      esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
+      '<div class="sub">' + esc(t.pool) + '</div>';
+    var btn = el('button', 'icon-btn', '✕');
+    btn.onclick = function () { state.pending.splice(i, 1); renderPending(); };
+    li.appendChild(info); li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+
+function savePractice() {
+  var date = $('inDate').value;
+  if (!date) { toast('日付を入力してください', true); return; }
+  var distance = $('inDistance').value;
+  if (state.pending.length === 0 && !distance) {
+    toast('総距離かタイム記録を入力してください', true); return;
+  }
+  var payload = {
+    date: date,
+    distance: distance ? Number(distance) : 0,
+    memo: $('inMemo').value,
+    times: state.pending.map(function (t) {
+      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool };
+    })
+  };
+  showLoading(true);
+  call('savePractice', [payload]).then(function () {
+    showLoading(false);
+    toast('保存しました');
+    // 入力欄をリセット
+    state.pending = [];
+    renderPending();
+    $('inDistance').value = '';
+    $('inMemo').value = '';
+    $('inTimeDistance').value = '';
+    $('inTime').value = '';
   }).catch(function (err) {
-    loading(false);
-    alert('読み込みエラー: ' + err.message);
+    showLoading(false);
+    toast('保存に失敗: ' + err.message, true);
   });
 }
 
-function loadSettings() {
-  return call('getSettings').then(function (s) {
-    state.settings = s;
-    // 設定フォームに反映
-    document.getElementById('setNameA').value = s['生徒A名'];
-    document.getElementById('setNameB').value = s['生徒B名'];
-    document.getElementById('setRateA').value = s['時給A'];
-    document.getElementById('setRateB').value = s['時給B'];
-    // ラベル類
-    document.getElementById('legendA').textContent = s['生徒A名'] + '（¥' + Number(s['時給A']).toLocaleString() + '/h）';
-    document.getElementById('legendB').textContent = s['生徒B名'] + '（¥' + Number(s['時給B']).toLocaleString() + '/h）';
-    document.querySelector('#modalStudent option[value="A"]').textContent = s['生徒A名'];
-    document.querySelector('#modalStudent option[value="B"]').textContent = s['生徒B名'];
+// =====================================================
+// ② 履歴一覧
+// =====================================================
+function loadHistory() {
+  var filter = $('historyFilter').value || null;
+  showLoading(true);
+  call('getHistory', [filter]).then(function (logs) {
+    showLoading(false);
+    renderHistory(logs);
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
   });
 }
 
-// ===== ダッシュボード =====
-function renderDashboard(d) {
-  document.getElementById('dashCurrentTotal').textContent = yen(d.current.total);
-  document.getElementById('dashPrevTotal').textContent = yen(d.previous.total);
-
-  var dt = document.getElementById('dashDiffTotal');
-  dt.textContent = '前月比 ' + diffText(d.diff.total);
-  dt.className = 'card-diff ' + diffClass(d.diff.total);
-
-  document.getElementById('dashTutor').textContent = yen(d.current.tutor);
-  document.getElementById('dashSwing').textContent = yen(d.current.swing);
-
-  setDiff('dashDiffTutor', d.diff.tutor);
-  setDiff('dashDiffSwing', d.diff.swing);
-
-  document.getElementById('dashHoursA').textContent = state.settings['生徒A名'] + ': ' + d.current.hoursA + 'h';
-  document.getElementById('dashHoursB').textContent = state.settings['生徒B名'] + ': ' + d.current.hoursB + 'h';
-}
-function setDiff(id, n) {
-  var el = document.getElementById(id);
-  el.textContent = diffText(n);
-  el.className = 'bd-diff ' + diffClass(n);
-}
-
-// ===== カレンダー =====
-function renderCalendar() {
-  var grid = document.getElementById('calendarGrid');
-  grid.innerHTML = '';
-
-  var first = new Date(state.year, state.month - 1, 1);
-  var startWeekday = first.getDay(); // 0=日
-  var daysInMonth = new Date(state.year, state.month, 0).getDate();
-
-  // 日ごとに記録をまとめる
-  var byDay = {};
-  var monthTotal = 0;
-  state.tutorRecords.forEach(function (r) {
-    var day = parseInt(r.date.split('-')[2], 10);
-    if (!byDay[day]) byDay[day] = [];
-    byDay[day].push(r);
-    monthTotal += r.amount;
-  });
-
-  // 先頭の空セル
-  for (var i = 0; i < startWeekday; i++) {
-    var e = document.createElement('div');
-    e.className = 'day empty';
-    grid.appendChild(e);
-  }
-
-  var todayIso = isoToday();
-  for (var d = 1; d <= daysInMonth; d++) {
-    var cell = document.createElement('div');
-    cell.className = 'day';
-    var iso = state.year + '-' + pad(state.month) + '-' + pad(d);
-    if (iso === todayIso) cell.className += ' today';
-
-    var html = '<span class="num">' + d + '</span>';
-    (byDay[d] || []).forEach(function (r) {
-      var cls = r.student === 'A' ? 'a' : 'b';
-      html += '<span class="pill ' + cls + '">' + r.hours + 'h</span>';
-    });
-    cell.innerHTML = html;
-    cell.addEventListener('click', (function (iso) { return function () { openModal(iso); }; })(iso));
-    grid.appendChild(cell);
-  }
-
-  document.getElementById('tutorMonthSum').textContent = '今月の家庭教師収入: ' + yen(monthTotal);
-}
-
-// ===== モーダル（勤務記録の入力） =====
-function openModal(iso) {
-  state.selectedDate = iso;
-  document.getElementById('modalDate').textContent = iso;
-  document.getElementById('modalHours').value = '';
-  document.getElementById('modalMemo').value = '';
-  renderModalRecords();
-  document.getElementById('modalOverlay').classList.add('show');
-}
-function closeModal() {
-  document.getElementById('modalOverlay').classList.remove('show');
-}
-function renderModalRecords() {
-  var box = document.getElementById('modalRecords');
-  var recs = state.tutorRecords.filter(function (r) { return r.date === state.selectedDate; });
-  if (recs.length === 0) {
-    box.innerHTML = '<p style="color:#6b7280;font-size:13px;">この日の記録はまだありません。</p>';
+function renderHistory(logs) {
+  var box = $('historyList');
+  box.innerHTML = '';
+  if (!logs.length) {
+    box.appendChild(el('div', 'empty-hint', '記録がありません'));
     return;
   }
-  box.innerHTML = recs.map(function (r) {
-    var name = r.student === 'A' ? state.settings['生徒A名'] : state.settings['生徒B名'];
-    var cls = r.student === 'A' ? 'a' : 'b';
-    var tagStyle = r.student === 'A' ? 'background:#2563eb' : 'background:#16a34a';
-    return '<div class="modal-record">' +
-      '<span class="tag" style="' + tagStyle + '">' + name + '</span>' +
-      '<span class="grow">' + r.hours + 'h × ¥' + r.rate.toLocaleString() + ' = ' + yen(r.amount) + '</span>' +
-      '<button class="del-btn" onclick="deleteTutor(\'' + r.id + '\')">削除</button>' +
-      '</div>';
-  }).join('');
-}
-function addTutorFromModal() {
-  var hours = parseFloat(document.getElementById('modalHours').value);
-  if (!hours || hours <= 0) { alert('時間を入力してください'); return; }
-  var rec = {
-    date: state.selectedDate,
-    student: document.getElementById('modalStudent').value,
-    hours: hours,
-    memo: document.getElementById('modalMemo').value
-  };
-  loading(true);
-  call('saveTutorRecord', [rec]).then(function () {
-    return refreshAll();
-  }).then(function () {
-    renderModalRecords();
-    document.getElementById('modalHours').value = '';
-    document.getElementById('modalMemo').value = '';
+  logs.forEach(function (log) {
+    var card = el('div', 'history-card');
+
+    var head = el('div', 'history-head');
+    head.innerHTML = '<span class="history-date">' + esc(log.date) + '</span>' +
+      '<span class="history-dist">総距離 ' + esc(log.distance) + 'm</span>';
+    card.appendChild(head);
+
+    if (log.memo) {
+      card.appendChild(el('div', 'history-memo', log.memo));
+    }
+
+    if (log.times.length) {
+      var table = el('table', 'time-table');
+      table.innerHTML = '<thead><tr><th>種目</th><th>距離</th><th>タイム</th><th>プール</th><th></th></tr></thead>';
+      var tb = el('tbody');
+      log.times.forEach(function (t) {
+        var tr = el('tr');
+        tr.innerHTML = '<td>' + esc(t.event) + '</td><td>' + esc(t.distance) + 'm</td>' +
+          '<td>' + esc(t.timeText) + '</td><td>' + esc(t.pool) + '</td>';
+        var tdDel = el('td');
+        var del = el('button', 'del-tm', '🗑');
+        del.title = 'このタイム記録を削除';
+        del.onclick = function () { deleteTimeRecord(t.id); };
+        tdDel.appendChild(del);
+        tr.appendChild(tdDel);
+        tb.appendChild(tr);
+      });
+      table.appendChild(tb);
+      card.appendChild(table);
+    }
+
+    var actions = el('div', 'history-actions');
+    var editBtn = el('button', 'btn secondary', '編集');
+    editBtn.onclick = function () { openEdit(log); };
+    var delBtn = el('button', 'btn danger', '削除');
+    delBtn.onclick = function () { deletePractice(log); };
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    card.appendChild(actions);
+
+    box.appendChild(card);
   });
-}
-function deleteTutor(id) {
-  if (!confirm('この記録を削除しますか？')) return;
-  loading(true);
-  call('deleteTutorRecord', [id]).then(function () {
-    return refreshAll();
-  }).then(renderModalRecords);
 }
 
-// ===== スイング投資 =====
-function renderSwing() {
-  var body = document.getElementById('swingTableBody');
-  var total = 0;
-  body.innerHTML = state.swingRecords.map(function (r) {
-    total += r.profit;
-    var cls = diffClass(r.profit);
-    return '<tr>' +
-      '<td>' + r.date + '</td>' +
-      '<td class="' + cls + '">' + diffText(r.profit) + '</td>' +
-      '<td>' + (r.memo || '') + '</td>' +
-      '<td><button class="del-btn" onclick="deleteSwing(\'' + r.id + '\')">削除</button></td>' +
-      '</tr>';
-  }).join('');
-  var sumEl = document.getElementById('swingMonthSum');
-  sumEl.textContent = '今月の損益: ' + diffText(total);
-  sumEl.className = 'month-sum ' + diffClass(total);
-}
-function addSwing() {
-  var date = document.getElementById('swingDate').value;
-  var profit = parseFloat(document.getElementById('swingProfit').value);
-  if (!date) { alert('日付を入力してください'); return; }
-  if (isNaN(profit)) { alert('損益を入力してください'); return; }
-  var rec = { date: date, profit: profit, memo: document.getElementById('swingMemo').value };
-  loading(true);
-  call('saveSwingRecord', [rec]).then(function () {
-    document.getElementById('swingProfit').value = '';
-    document.getElementById('swingMemo').value = '';
-    return refreshAll();
+function deletePractice(log) {
+  if (!confirm(log.date + ' の練習記録を削除します。よろしいですか？（タイム記録も全て削除されます）')) return;
+  showLoading(true);
+  call('deletePractice', [log.id]).then(function () {
+    showLoading(false);
+    toast('削除しました');
+    loadHistory();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('削除に失敗: ' + err.message, true);
   });
-}
-function deleteSwing(id) {
-  if (!confirm('この記録を削除しますか？')) return;
-  loading(true);
-  call('deleteSwingRecord', [id]).then(refreshAll);
 }
 
-// ===== 設定 =====
-function saveSettings() {
-  var s = {
-    '生徒A名': document.getElementById('setNameA').value || '生徒A',
-    '生徒B名': document.getElementById('setNameB').value || '生徒B',
-    '時給A': parseFloat(document.getElementById('setRateA').value) || 0,
-    '時給B': parseFloat(document.getElementById('setRateB').value) || 0
-  };
-  loading(true);
-  call('saveSettings', [s]).then(function () {
-    return loadSettings();
-  }).then(function () {
-    loading(false);
-    alert('設定を保存しました');
-    refreshAll();
+function deleteTimeRecord(id) {
+  if (!confirm('このタイム記録を削除しますか？')) return;
+  showLoading(true);
+  call('deleteTimeRecord', [id]).then(function () {
+    showLoading(false);
+    toast('削除しました');
+    loadHistory();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('削除に失敗: ' + err.message, true);
   });
 }
+
+// ---- 編集モーダル ----
+function openEdit(log) {
+  state.editLogId = log.id;
+  state.editTimes = log.times.map(function (t) {
+    return { event: t.event, distance: t.distance, time: t.timeText, seconds: t.seconds, pool: t.pool };
+  });
+  $('editDate').value = log.date;
+  $('editDistance').value = log.distance;
+  $('editMemo').value = log.memo;
+  renderEditTimes();
+  $('editOverlay').classList.add('show');
+}
+function closeEdit() {
+  $('editOverlay').classList.remove('show');
+  state.editLogId = null;
+  state.editTimes = [];
+}
+function renderEditTimes() {
+  var ul = $('editTimeList');
+  ul.innerHTML = '';
+  state.editTimes.forEach(function (t, i) {
+    var li = el('li');
+    var info = el('div', 'pending-info');
+    info.innerHTML = '<span class="ev">' + esc(t.event) + '</span> ' +
+      esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
+      '<div class="sub">' + esc(t.pool) + '</div>';
+    var btn = el('button', 'icon-btn', '✕');
+    btn.onclick = function () { state.editTimes.splice(i, 1); renderEditTimes(); };
+    li.appendChild(info); li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+function addEditTime() {
+  var event = $('editEvent').value;
+  var distance = $('editTimeDistance').value;
+  var timeRaw = $('editTime').value;
+  var pool = $('editPool').value;
+  if (!event) { toast('種目を選択してください', true); return; }
+  if (!distance) { toast('距離を入力してください', true); return; }
+  if (!pool) { toast('プールを選択してください', true); return; }
+  var seconds;
+  try { seconds = parseTimeToSeconds(timeRaw); }
+  catch (e) { toast(e.message, true); return; }
+  state.editTimes.push({ event: event, distance: Number(distance), time: timeRaw.trim(), seconds: seconds, pool: pool });
+  $('editTimeDistance').value = '';
+  $('editTime').value = '';
+  renderEditTimes();
+}
+function saveEdit() {
+  var date = $('editDate').value;
+  if (!date) { toast('日付を入力してください', true); return; }
+  var payload = {
+    id: state.editLogId,
+    date: date,
+    distance: $('editDistance').value ? Number($('editDistance').value) : 0,
+    memo: $('editMemo').value,
+    times: state.editTimes.map(function (t) {
+      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool };
+    })
+  };
+  showLoading(true);
+  call('savePractice', [payload]).then(function () {
+    showLoading(false);
+    toast('更新しました');
+    closeEdit();
+    loadHistory();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('更新に失敗: ' + err.message, true);
+  });
+}
+
+// =====================================================
+// ③ 分析
+// =====================================================
+function loadAnalysis() {
+  var eventName = $('anEvent').value;
+  if (!eventName) {
+    if (state.chart) { state.chart.destroy(); state.chart = null; }
+    $('analysisEmpty').classList.remove('hidden');
+    $('analysisEmpty').textContent = '種目を登録・選択してください';
+    return;
+  }
+  var lane = $('anLane').value;
+  showLoading(true);
+  call('getAnalysisData', [eventName, lane, state.analysisPeriod]).then(function (points) {
+    showLoading(false);
+    renderChart(points);
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
+  });
+}
+
+function renderChart(points) {
+  var emptyEl = $('analysisEmpty');
+  if (!points.length) {
+    if (state.chart) { state.chart.destroy(); state.chart = null; }
+    emptyEl.textContent = '該当する記録がありません';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  var labels = points.map(function (p) { return p.date; });
+  var data = points.map(function (p) { return p.seconds; });
+
+  if (state.chart) { state.chart.destroy(); }
+  var ctx = $('analysisChart').getContext('2d');
+  state.chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'タイム(秒)',
+        data: data,
+        borderColor: '#1789c9',
+        backgroundColor: 'rgba(23,137,201,.12)',
+        borderWidth: 2.5,
+        pointRadius: 5,
+        pointHoverRadius: 7,
+        pointBackgroundColor: '#0f5c8c',
+        tension: 0.2,
+        fill: true
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          reverse: true, // 上に行くほどタイムが小さい＝速い
+          title: { display: true, text: 'タイム(秒)　上ほど速い' },
+          ticks: {
+            callback: function (v) { return formatSeconds(v); }
+          }
+        },
+        x: { ticks: { maxRotation: 60, minRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: function (items) { return points[items[0].dataIndex].date; },
+            label: function (item) {
+              var p = points[item.dataIndex];
+              return [
+                '距離: ' + p.distance + 'm',
+                'タイム: ' + p.timeText,
+                'プール: ' + (p.pool || '-') + (p.lane ? '（' + p.lane + '）' : '')
+              ];
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+// =====================================================
+// ④ 種目マスタ
+// =====================================================
+function renderEventMaster() {
+  var ul = $('eventList');
+  ul.innerHTML = '';
+  if (!state.events.length) {
+    ul.appendChild(el('div', 'empty-hint', '種目がありません。追加してください。'));
+    return;
+  }
+  state.events.forEach(function (ev) {
+    var li = el('li');
+    li.appendChild(el('span', 'master-name', ev.name));
+    var btn = el('button', 'archive-btn', 'アーカイブ');
+    btn.onclick = function () { archiveEvent(ev); };
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+function addEvent() {
+  var name = $('newEventName').value.trim();
+  if (!name) { toast('種目名を入力してください', true); return; }
+  showLoading(true);
+  call('addEvent', [name]).then(function (events) {
+    showLoading(false);
+    state.events = events;
+    $('newEventName').value = '';
+    refreshAllSelects();
+    renderEventMaster();
+    toast('追加しました');
+  }).catch(function (err) {
+    showLoading(false);
+    toast(err.message, true);
+  });
+}
+function archiveEvent(ev) {
+  if (!confirm('「' + ev.name + '」をアーカイブしますか？（過去のタイム記録は残ります）')) return;
+  showLoading(true);
+  call('archiveEvent', [ev.id]).then(function (events) {
+    showLoading(false);
+    state.events = events;
+    refreshAllSelects();
+    renderEventMaster();
+    toast('アーカイブしました');
+  }).catch(function (err) {
+    showLoading(false);
+    toast(err.message, true);
+  });
+}
+
+// =====================================================
+// ⑤ プールマスタ
+// =====================================================
+function renderPoolMaster() {
+  var ul = $('poolList');
+  ul.innerHTML = '';
+  if (!state.pools.length) {
+    ul.appendChild(el('div', 'empty-hint', 'プールがありません。追加してください。'));
+    return;
+  }
+  state.pools.forEach(function (p) {
+    var li = el('li');
+    var name = el('span', 'master-name', p.name);
+    var sub = el('span', 'master-sub', p.lane);
+    var left = el('div');
+    left.appendChild(name); left.appendChild(sub);
+    li.appendChild(left);
+    var btn = el('button', 'archive-btn', 'アーカイブ');
+    btn.onclick = function () { archivePool(p); };
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+}
+function addPool() {
+  var name = $('newPoolName').value.trim();
+  var lane = $('newPoolLane').value;
+  if (!name) { toast('プール名を入力してください', true); return; }
+  showLoading(true);
+  call('addPool', [name, lane]).then(function (pools) {
+    showLoading(false);
+    state.pools = pools;
+    $('newPoolName').value = '';
+    refreshAllSelects();
+    renderPoolMaster();
+    toast('追加しました');
+  }).catch(function (err) {
+    showLoading(false);
+    toast(err.message, true);
+  });
+}
+function archivePool(p) {
+  if (!confirm('「' + p.name + '」をアーカイブしますか？（過去のタイム記録は残ります）')) return;
+  showLoading(true);
+  call('archivePool', [p.id]).then(function (pools) {
+    showLoading(false);
+    state.pools = pools;
+    refreshAllSelects();
+    renderPoolMaster();
+    toast('アーカイブしました');
+  }).catch(function (err) {
+    showLoading(false);
+    toast(err.message, true);
+  });
+}
+
+// =====================================================
+// イベント登録 & 初期化
+// =====================================================
+function bindEvents() {
+  $('menuBtn').onclick = function () { openDrawer(!$('drawer').classList.contains('open')); };
+  $('drawerOverlay').onclick = function () { openDrawer(false); };
+  document.querySelectorAll('.nav-item').forEach(function (n) {
+    n.onclick = function () { switchScreen(n.dataset.screen); };
+  });
+
+  // 記録入力
+  $('addTimeBtn').onclick = addPendingTime;
+  $('savePracticeBtn').onclick = savePractice;
+
+  // 履歴
+  $('historyFilter').onchange = loadHistory;
+
+  // 編集モーダル
+  $('editAddTimeBtn').onclick = addEditTime;
+  $('editCancelBtn').onclick = closeEdit;
+  $('editSaveBtn').onclick = saveEdit;
+  $('editOverlay').onclick = function (e) { if (e.target === $('editOverlay')) closeEdit(); };
+
+  // 分析
+  $('anEvent').onchange = loadAnalysis;
+  $('anLane').onchange = loadAnalysis;
+  document.querySelectorAll('.period-tab').forEach(function (tab) {
+    tab.onclick = function () {
+      document.querySelectorAll('.period-tab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      state.analysisPeriod = tab.dataset.period;
+      loadAnalysis();
+    };
+  });
+
+  // マスタ
+  $('addEventBtn').onclick = addEvent;
+  $('addPoolBtn').onclick = addPool;
+  $('newEventName').addEventListener('keydown', function (e) { if (e.key === 'Enter') addEvent(); });
+  $('newPoolName').addEventListener('keydown', function (e) { if (e.key === 'Enter') addPool(); });
+}
+
+function init() {
+  $('inDate').value = todayStr();
+  bindEvents();
+  showLoading(true);
+  call('getMasters', []).then(function (m) {
+    showLoading(false);
+    state.events = m.events || [];
+    state.pools = m.pools || [];
+    refreshAllSelects();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('初期化に失敗: ' + err.message, true);
+  });
+}
+
+window.addEventListener('DOMContentLoaded', init);
 </script>

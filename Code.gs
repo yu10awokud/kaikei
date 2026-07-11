@@ -1,38 +1,40 @@
 /**
- * 収入一括管理ツール（GAS Webアプリ）
+ * 水泳練習記録アプリ（GAS Webアプリ）
  * --------------------------------------------------
- * - 家庭教師（生徒A/B）の勤務記録と収入の自動計算
- * - スイング投資の週単位の損益記録
- * - 今月 / 先月 / 差分（±）をトップ画面に表示
+ * - スマホのブラウザから練習直後にその場で入力するのがメインユースケース
+ * - 練習ログ（日付・総距離・メモ）と、その日の複数のタイム記録を保存
+ * - 種目マスタ / プールマスタ（アーカイブ方式）
+ * - 種目・水路タイプ・期間で絞り込んだタイムの折れ線グラフ分析
+ * - 履歴の閲覧・編集・削除
  *
  * データはこのスクリプトに紐づいたスプレッドシートに保存します。
  * シートが無ければ初回アクセス時に自動生成します。
  */
 
 // ===== シート名・定数 =====
-const SHEET_SETTINGS = '設定';
-const SHEET_TUTOR    = '家庭教師';
-const SHEET_SWING    = 'スイング投資';
+const SHEET_PRACTICE = 'PracticeLog';   // 練習ログ
+const SHEET_TIME     = 'TimeRecord';    // タイム記録
+const SHEET_EVENT    = 'EventMaster';   // 種目マスタ
+const SHEET_POOL     = 'PoolMaster';    // プールマスタ
 
-// 設定のデフォルト値（初回のみ書き込まれる。後から画面で変更可能）
-const DEFAULT_SETTINGS = {
-  '時給A':   4200,
-  '時給B':   3500,
-  '生徒A名': '生徒A',
-  '生徒B名': '生徒B'
-};
+const STATUS_ACTIVE   = '有効';
+const STATUS_ARCHIVED = 'アーカイブ';
+
+// 初回セットアップ時に投入する種目・プールの初期候補
+const DEFAULT_EVENTS = ['Fr', 'Ba', 'Br', 'Fly', 'IM'];
+const DEFAULT_POOLS  = []; // プールはユーザーに登録してもらう
 
 // ===== Webアプリのエントリーポイント =====
 function doGet() {
   setupSheets_(); // 念のため毎回シートの存在を保証
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('収入管理ツール')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setTitle('水泳練習記録')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1')
     .setSandboxMode(HtmlService.SandboxMode.IFRAME);
 }
 
-// HTMLファイルを読み込むためのヘルパー（CSS/JSを分割するため）
+// HTMLファイル内でCSS/JSを読み込むためのヘルパー
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
@@ -41,249 +43,422 @@ function include(filename) {
 function setupSheets_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // 設定シート
-  let settings = ss.getSheetByName(SHEET_SETTINGS);
-  if (!settings) {
-    settings = ss.insertSheet(SHEET_SETTINGS);
-    settings.getRange(1, 1, 1, 2).setValues([['キー', '値']]).setFontWeight('bold');
-    const rows = Object.keys(DEFAULT_SETTINGS).map(k => [k, DEFAULT_SETTINGS[k]]);
-    settings.getRange(2, 1, rows.length, 2).setValues(rows);
-    settings.setFrozenRows(1);
-  }
-
-  // 家庭教師シート
-  let tutor = ss.getSheetByName(SHEET_TUTOR);
-  if (!tutor) {
-    tutor = ss.insertSheet(SHEET_TUTOR);
-    tutor.getRange(1, 1, 1, 7)
-      .setValues([['ID', '日付', '生徒', '時間', '時給', '金額', 'メモ']])
+  // 練習ログ
+  let practice = ss.getSheetByName(SHEET_PRACTICE);
+  if (!practice) {
+    practice = ss.insertSheet(SHEET_PRACTICE);
+    practice.getRange(1, 1, 1, 4)
+      .setValues([['ID', '日付', '総距離', 'メモ']])
       .setFontWeight('bold');
-    tutor.setFrozenRows(1);
+    practice.setFrozenRows(1);
   }
 
-  // スイング投資シート
-  let swing = ss.getSheetByName(SHEET_SWING);
-  if (!swing) {
-    swing = ss.insertSheet(SHEET_SWING);
-    swing.getRange(1, 1, 1, 4)
-      .setValues([['ID', '日付', '損益', 'メモ']])
+  // タイム記録
+  let time = ss.getSheetByName(SHEET_TIME);
+  if (!time) {
+    time = ss.insertSheet(SHEET_TIME);
+    time.getRange(1, 1, 1, 7)
+      .setValues([['ID', '練習ログID', '日付', '種目', '距離', 'タイム(秒)', 'プール']])
       .setFontWeight('bold');
-    swing.setFrozenRows(1);
+    time.setFrozenRows(1);
   }
 
-  // デフォルトの「シート1」が残っていれば削除（他に2枚以上ある時のみ）
+  // 種目マスタ
+  let event = ss.getSheetByName(SHEET_EVENT);
+  if (!event) {
+    event = ss.insertSheet(SHEET_EVENT);
+    event.getRange(1, 1, 1, 3)
+      .setValues([['ID', '種目名', '状態']])
+      .setFontWeight('bold');
+    event.setFrozenRows(1);
+    if (DEFAULT_EVENTS.length) {
+      const rows = DEFAULT_EVENTS.map(name => [Utilities.getUuid(), name, STATUS_ACTIVE]);
+      event.getRange(2, 1, rows.length, 3).setValues(rows);
+    }
+  }
+
+  // プールマスタ
+  let pool = ss.getSheetByName(SHEET_POOL);
+  if (!pool) {
+    pool = ss.insertSheet(SHEET_POOL);
+    pool.getRange(1, 1, 1, 4)
+      .setValues([['ID', 'プール名', '水路タイプ', '状態']])
+      .setFontWeight('bold');
+    pool.setFrozenRows(1);
+    if (DEFAULT_POOLS.length) {
+      const rows = DEFAULT_POOLS.map(p => [Utilities.getUuid(), p.name, p.lane, STATUS_ACTIVE]);
+      pool.getRange(2, 1, rows.length, 4).setValues(rows);
+    }
+  }
+
+  // デフォルトの空シートが残っていれば削除
   const blank = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
   if (blank && ss.getSheets().length > 1) {
     try { ss.deleteSheet(blank); } catch (e) {}
   }
 }
 
-// ===== 設定の取得・保存 =====
-function getSettings() {
-  setupSheets_();
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SETTINGS);
-  const values = sheet.getDataRange().getValues();
-  const result = Object.assign({}, DEFAULT_SETTINGS);
-  for (let i = 1; i < values.length; i++) {
-    const key = values[i][0];
-    if (key) result[key] = values[i][1];
+// ===== タイム変換ヘルパー =====
+
+/**
+ * 分秒形式の文字列を秒数(number)に変換する。
+ *   "1:19.50" -> 79.5
+ *   "1:05"    -> 65
+ *   "30.20"   -> 30.2
+ *   "45"      -> 45
+ * 不正な入力は例外を投げる。
+ */
+function parseTimeToSeconds_(input) {
+  if (input === null || input === undefined) throw new Error('タイムが未入力です');
+  const s = String(input).trim();
+  if (s === '') throw new Error('タイムが未入力です');
+
+  // 数値としてそのまま渡ってきた場合（既に秒数）
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const v = Number(s);
+    if (v < 0) throw new Error('タイムは0以上で入力してください');
+    return Math.round(v * 100) / 100;
   }
-  // 時給は数値に正規化
-  result['時給A'] = Number(result['時給A']) || 0;
-  result['時給B'] = Number(result['時給B']) || 0;
+
+  // 分:秒(.ミリ秒) 形式
+  const m = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
+  if (!m) {
+    throw new Error('タイムの形式が不正です（例: 1:19.50 または 30.20）');
+  }
+  const minutes = parseInt(m[1], 10);
+  const seconds = parseInt(m[2], 10);
+  const frac = m[3] ? parseFloat(m[3]) : 0;
+  const total = minutes * 60 + seconds + frac;
+  return Math.round(total * 100) / 100;
+}
+
+/**
+ * 秒数を "m:ss.SS" 形式に整形する（1分以上なら分表記、未満なら秒のみ）。
+ *   79.5 -> "1:19.50"
+ *   30.2 -> "30.20"
+ */
+function formatSeconds_(sec) {
+  const v = Number(sec) || 0;
+  if (v >= 60) {
+    const m = Math.floor(v / 60);
+    const s = v - m * 60;
+    const sStr = s.toFixed(2).padStart(5, '0'); // "09.50"
+    return m + ':' + sStr;
+  }
+  return v.toFixed(2);
+}
+
+// ===== 種目マスタ =====
+function getEvents(includeArchived) {
+  setupSheets_();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_EVENT);
+  const values = sheet.getDataRange().getValues();
+  const result = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    const status = String(row[2] || STATUS_ACTIVE);
+    if (!includeArchived && status !== STATUS_ACTIVE) continue;
+    result.push({ id: String(row[0]), name: String(row[1]), status: status });
+  }
   return result;
 }
 
-function saveSettings(newSettings) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SETTINGS);
-  const rows = [['キー', '値']];
-  ['時給A', '時給B', '生徒A名', '生徒B名'].forEach(k => {
-    rows.push([k, newSettings[k]]);
-  });
-  sheet.clearContents();
-  sheet.getRange(1, 1, rows.length, 2).setValues(rows);
-  sheet.getRange(1, 1, 1, 2).setFontWeight('bold');
-  return getSettings();
+function addEvent(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw new Error('種目名を入力してください');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_EVENT);
+  // 既存の有効な同名があれば重複追加しない
+  const existing = getEvents(false);
+  if (existing.some(e => e.name === trimmed)) {
+    throw new Error('同じ名前の種目が既に存在します');
+  }
+  sheet.appendRow([Utilities.getUuid(), trimmed, STATUS_ACTIVE]);
+  return getEvents(false);
 }
 
-// ===== 家庭教師：記録の取得・保存・削除 =====
+function archiveEvent(id) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_EVENT);
+  const rowIndex = findRowById_(sheet, id);
+  if (rowIndex > 0) sheet.getRange(rowIndex, 3).setValue(STATUS_ARCHIVED);
+  return getEvents(false);
+}
 
-/**
- * 指定した年月（1〜12）の勤務記録を返す。
- * 同時に、月内の日ごとの合計金額（カレンダー表示用）も返す。
- */
-function getTutorRecords(year, month) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TUTOR);
+// ===== プールマスタ =====
+function getPools(includeArchived) {
+  setupSheets_();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_POOL);
   const values = sheet.getDataRange().getValues();
-  const tz = Session.getScriptTimeZone();
-  const records = [];
-
+  const result = [];
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
     if (!row[0]) continue;
-    const d = new Date(row[1]);
-    if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) continue;
-    records.push({
-      id:      String(row[0]),
-      date:    Utilities.formatDate(d, tz, 'yyyy-MM-dd'),
-      student: String(row[2]),
-      hours:   Number(row[3]),
-      rate:    Number(row[4]),
-      amount:  Number(row[5]),
-      memo:    String(row[6] || '')
+    const status = String(row[3] || STATUS_ACTIVE);
+    if (!includeArchived && status !== STATUS_ACTIVE) continue;
+    result.push({
+      id: String(row[0]),
+      name: String(row[1]),
+      lane: String(row[2] || ''),
+      status: status
     });
   }
-  records.sort((a, b) => a.date.localeCompare(b.date));
-  return records;
+  return result;
 }
 
-/**
- * 勤務記録を1件保存（idが無ければ新規、有れば更新）。
- * 金額は設定の時給を元にサーバー側で再計算する。
- */
-function saveTutorRecord(record) {
-  const settings = getSettings();
-  const rate = record.student === 'A' ? settings['時給A'] : settings['時給B'];
-  const hours = Number(record.hours) || 0;
-  const amount = Math.round(rate * hours);
-
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TUTOR);
-  const newRow = [
-    record.id || Utilities.getUuid(),
-    record.date,
-    record.student,
-    hours,
-    rate,
-    amount,
-    record.memo || ''
-  ];
-
-  if (record.id) {
-    const rowIndex = findRowById_(sheet, record.id);
-    if (rowIndex > 0) {
-      sheet.getRange(rowIndex, 1, 1, newRow.length).setValues([newRow]);
-      return { ok: true };
-    }
+function addPool(name, lane) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) throw new Error('プール名を入力してください');
+  if (lane !== '長水路' && lane !== '短水路') {
+    throw new Error('水路タイプを選択してください');
   }
-  sheet.appendRow(newRow);
+  const existing = getPools(false);
+  if (existing.some(p => p.name === trimmed)) {
+    throw new Error('同じ名前のプールが既に存在します');
+  }
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_POOL);
+  sheet.appendRow([Utilities.getUuid(), trimmed, lane, STATUS_ACTIVE]);
+  return getPools(false);
+}
+
+function archivePool(id) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_POOL);
+  const rowIndex = findRowById_(sheet, id);
+  if (rowIndex > 0) sheet.getRange(rowIndex, 4).setValue(STATUS_ARCHIVED);
+  return getPools(false);
+}
+
+/** プール名 -> 水路タイプ のマップを作る（アーカイブ含む＝過去データ用） */
+function poolLaneMap_() {
+  const map = {};
+  getPools(true).forEach(p => { map[p.name] = p.lane; });
+  return map;
+}
+
+// ===== 練習記録：保存 =====
+
+/**
+ * 練習ログ＋タイム記録をまとめて保存する。
+ * payload = {
+ *   id:       更新時のみ（練習ログID）,
+ *   date:     'yyyy-MM-dd',
+ *   distance: 総距離(number),
+ *   memo:     メモ,
+ *   times: [ { event, distance, time, pool }, ... ]   // time は "1:19.50" 等の文字列
+ * }
+ * タイムはサーバー側で秒数に変換して保存する。
+ */
+function savePractice(payload) {
+  setupSheets_();
+  if (!payload || !payload.date) throw new Error('日付を入力してください');
+
+  // タイム記録を事前に検証・変換（1件でも不正なら保存しない）
+  const times = (payload.times || []).map(function (t) {
+    return {
+      event: String(t.event || '').trim(),
+      distance: Number(t.distance) || 0,
+      seconds: parseTimeToSeconds_(t.time),
+      pool: String(t.pool || '').trim()
+    };
+  });
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const practiceSheet = ss.getSheetByName(SHEET_PRACTICE);
+  const timeSheet = ss.getSheetByName(SHEET_TIME);
+
+  const logId = payload.id || Utilities.getUuid();
+  const distance = Number(payload.distance) || 0;
+  const memo = String(payload.memo || '');
+  const logRow = [logId, payload.date, distance, memo];
+
+  if (payload.id) {
+    // 更新：練習ログ行を書き換え、既存のタイム記録を全削除して入れ直す
+    const rowIndex = findRowById_(practiceSheet, payload.id);
+    if (rowIndex > 0) {
+      practiceSheet.getRange(rowIndex, 1, 1, 4).setValues([logRow]);
+    } else {
+      practiceSheet.appendRow(logRow);
+    }
+    deleteTimeRecordsByLogId_(logId);
+  } else {
+    practiceSheet.appendRow(logRow);
+  }
+
+  // タイム記録を追加
+  if (times.length) {
+    const rows = times.map(function (t) {
+      return [Utilities.getUuid(), logId, payload.date, t.event, t.distance, t.seconds, t.pool];
+    });
+    timeSheet.getRange(timeSheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
+  }
+
+  return { ok: true, id: logId };
+}
+
+// ===== 練習記録：履歴取得 =====
+
+/**
+ * 練習ログを日付の新しい順で返す（各ログにタイム記録をぶら下げる）。
+ * eventFilter を渡すと、その種目を含む練習日のみに絞り込む。
+ */
+function getHistory(eventFilter) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+
+  // タイム記録を logId 単位でまとめる
+  const timeValues = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
+  const timesByLog = {};
+  for (let i = 1; i < timeValues.length; i++) {
+    const row = timeValues[i];
+    if (!row[0]) continue;
+    const logId = String(row[1]);
+    if (!timesByLog[logId]) timesByLog[logId] = [];
+    timesByLog[logId].push({
+      id: String(row[0]),
+      logId: logId,
+      date: fmtDate_(row[2], tz),
+      event: String(row[3]),
+      distance: Number(row[4]),
+      seconds: Number(row[5]),
+      timeText: formatSeconds_(Number(row[5])),
+      pool: String(row[6] || '')
+    });
+  }
+
+  // 練習ログ
+  const logValues = ss.getSheetByName(SHEET_PRACTICE).getDataRange().getValues();
+  const logs = [];
+  for (let i = 1; i < logValues.length; i++) {
+    const row = logValues[i];
+    if (!row[0]) continue;
+    const logId = String(row[0]);
+    const times = timesByLog[logId] || [];
+    if (eventFilter && !times.some(t => t.event === eventFilter)) continue;
+    logs.push({
+      id: logId,
+      date: fmtDate_(row[1], tz),
+      distance: Number(row[2]) || 0,
+      memo: String(row[3] || ''),
+      times: times
+    });
+  }
+
+  logs.sort((a, b) => b.date.localeCompare(a.date));
+  return logs;
+}
+
+// ===== 練習記録：削除 =====
+function deletePractice(logId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const practiceSheet = ss.getSheetByName(SHEET_PRACTICE);
+  const rowIndex = findRowById_(practiceSheet, logId);
+  if (rowIndex > 0) practiceSheet.deleteRow(rowIndex);
+  deleteTimeRecordsByLogId_(logId);
   return { ok: true };
 }
 
-function deleteTutorRecord(id) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TUTOR);
-  const rowIndex = findRowById_(sheet, id);
+function deleteTimeRecord(timeId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TIME);
+  const rowIndex = findRowById_(sheet, timeId);
   if (rowIndex > 0) sheet.deleteRow(rowIndex);
   return { ok: true };
 }
 
-// ===== スイング投資：記録の取得・保存・削除 =====
-function getSwingRecords(year, month) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SWING);
+/** 指定 logId に紐づくタイム記録を全削除（下の行から消して行ズレを防ぐ） */
+function deleteTimeRecordsByLogId_(logId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TIME);
   const values = sheet.getDataRange().getValues();
-  const tz = Session.getScriptTimeZone();
-  const records = [];
+  const rowsToDelete = [];
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][1]) === String(logId)) rowsToDelete.push(i + 1);
+  }
+  rowsToDelete.sort((a, b) => b - a).forEach(r => sheet.deleteRow(r));
+}
 
+// ===== 分析データ =====
+
+/**
+ * 種目・水路タイプ・期間で絞り込んだタイム記録を日付昇順で返す。
+ * eventName : 種目名
+ * laneType  : '長水路' | '短水路' | '両方'
+ * period    : 'week'(7日) | 'month'(30日) | '3month'(90日) | 'all'
+ */
+function getAnalysisData(eventName, laneType, period) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const laneMap = poolLaneMap_();
+
+  // 期間の下限日付を求める
+  let minDate = null;
+  const days = { week: 7, month: 30, '3month': 90 };
+  if (days[period]) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - days[period]);
+    minDate = Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+  }
+
+  const values = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
+  const points = [];
   for (let i = 1; i < values.length; i++) {
     const row = values[i];
     if (!row[0]) continue;
-    const d = new Date(row[1]);
-    if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) continue;
-    records.push({
-      id:     String(row[0]),
-      date:   Utilities.formatDate(d, tz, 'yyyy-MM-dd'),
-      profit: Number(row[2]),
-      memo:   String(row[3] || '')
+    if (String(row[3]) !== eventName) continue;
+
+    const dateStr = fmtDate_(row[2], tz);
+    if (minDate && dateStr < minDate) continue;
+
+    const pool = String(row[6] || '');
+    const lane = laneMap[pool] || '';
+    if (laneType !== '両方' && lane !== laneType) continue;
+
+    points.push({
+      date: dateStr,
+      distance: Number(row[4]),
+      seconds: Number(row[5]),
+      timeText: formatSeconds_(Number(row[5])),
+      pool: pool,
+      lane: lane
     });
   }
-  records.sort((a, b) => a.date.localeCompare(b.date));
-  return records;
+
+  points.sort((a, b) => a.date.localeCompare(b.date));
+  return points;
 }
 
-function saveSwingRecord(record) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SWING);
-  const newRow = [
-    record.id || Utilities.getUuid(),
-    record.date,
-    Number(record.profit) || 0,
-    record.memo || ''
-  ];
-  if (record.id) {
-    const rowIndex = findRowById_(sheet, record.id);
-    if (rowIndex > 0) {
-      sheet.getRange(rowIndex, 1, 1, newRow.length).setValues([newRow]);
-      return { ok: true };
-    }
-  }
-  sheet.appendRow(newRow);
-  return { ok: true };
-}
-
-function deleteSwingRecord(id) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_SWING);
-  const rowIndex = findRowById_(sheet, id);
-  if (rowIndex > 0) sheet.deleteRow(rowIndex);
-  return { ok: true };
-}
-
-// ===== ダッシュボード集計 =====
-
-/**
- * 指定月と前月の収入を集計して返す。
- * 収入 = 家庭教師の合計金額 + スイング投資の損益合計
- */
-function getDashboard(year, month) {
-  const cur  = monthlyTotal_(year, month);
-  const prevDate = new Date(year, month - 2, 1); // monthは1始まりなので-2で前月
-  const prev = monthlyTotal_(prevDate.getFullYear(), prevDate.getMonth() + 1);
-
+// ===== 初期表示用のまとめ取得 =====
+/** 入力画面の初期化に必要なマスタをまとめて返す（往復を減らす） */
+function getMasters() {
   return {
-    year: year,
-    month: month,
-    current: cur,
-    previous: prev,
-    diff: {
-      tutor:  cur.tutor  - prev.tutor,
-      swing:  cur.swing  - prev.swing,
-      total:  cur.total  - prev.total
-    }
-  };
-}
-
-function monthlyTotal_(year, month) {
-  const tutorRecords = getTutorRecords(year, month);
-  const swingRecords = getSwingRecords(year, month);
-
-  let tutorTotal = 0, hoursA = 0, hoursB = 0;
-  tutorRecords.forEach(r => {
-    tutorTotal += r.amount;
-    if (r.student === 'A') hoursA += r.hours;
-    if (r.student === 'B') hoursB += r.hours;
-  });
-
-  let swingTotal = 0;
-  swingRecords.forEach(r => { swingTotal += r.profit; });
-
-  return {
-    tutor:  tutorTotal,
-    swing:  swingTotal,
-    total:  tutorTotal + swingTotal,
-    hoursA: hoursA,
-    hoursB: hoursB
+    events: getEvents(false),
+    pools: getPools(false)
   };
 }
 
 // ===== 共通ヘルパー =====
 function findRowById_(sheet, id) {
-  const ids = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
+  const last = sheet.getLastRow();
+  if (last < 2) return -1;
+  const ids = sheet.getRange(1, 1, last, 1).getValues();
   for (let i = 1; i < ids.length; i++) {
-    if (String(ids[i][0]) === String(id)) return i + 1; // 1始まりの行番号
+    if (String(ids[i][0]) === String(id)) return i + 1;
   }
   return -1;
 }
 
+/** セル値（Date または文字列）を 'yyyy-MM-dd' に整形 */
+function fmtDate_(value, tz) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+  }
+  // 文字列の場合はそのまま先頭10文字（'yyyy-MM-dd'想定）
+  const s = String(value);
+  return s.length >= 10 ? s.substring(0, 10) : s;
+}
+
 /**
- * 初期データ確認用（任意）。スクリプトエディタから実行すると
- * シートを生成し、スプレッドシートのURLをログに出します。
+ * スクリプトエディタから手動実行してセットアップ確認用。
  */
 function init() {
   setupSheets_();

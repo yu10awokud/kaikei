@@ -6,127 +6,177 @@
 </head>
 <body>
   <div id="app">
+    <!-- ===== ヘッダー / ナビ ===== -->
     <header class="app-header">
-      <h1>収入管理ツール</h1>
-      <div class="month-nav">
-        <button id="prevMonth" class="nav-btn">‹</button>
-        <span id="currentMonthLabel">----年--月</span>
-        <button id="nextMonth" class="nav-btn">›</button>
-      </div>
+      <button id="menuBtn" class="menu-btn" aria-label="メニュー">☰</button>
+      <h1 id="screenTitle">記録入力</h1>
+      <span class="header-logo">🏊</span>
     </header>
 
-    <!-- タブ -->
-    <nav class="tabs">
-      <button class="tab active" data-tab="dashboard">トップ</button>
-      <button class="tab" data-tab="calendar">カレンダー（家庭教師）</button>
-      <button class="tab" data-tab="swing">スイング投資</button>
-      <button class="tab" data-tab="settings">設定</button>
+    <nav id="drawer" class="drawer">
+      <button class="nav-item active" data-screen="input">📝 記録入力</button>
+      <button class="nav-item" data-screen="history">📅 履歴一覧</button>
+      <button class="nav-item" data-screen="analysis">📈 分析</button>
+      <button class="nav-item" data-screen="events">🏷 種目マスタ</button>
+      <button class="nav-item" data-screen="pools">🏊 プールマスタ</button>
     </nav>
+    <div id="drawerOverlay" class="drawer-overlay"></div>
 
-    <!-- ===== トップ（ダッシュボード） ===== -->
-    <section id="dashboard" class="panel active">
-      <div class="cards">
-        <div class="card big">
-          <div class="card-label">今月の収入</div>
-          <div class="card-value" id="dashCurrentTotal">¥0</div>
-          <div class="card-diff" id="dashDiffTotal">前月比 ±0</div>
-        </div>
-        <div class="card">
-          <div class="card-label">先月の収入</div>
-          <div class="card-value" id="dashPrevTotal">¥0</div>
-        </div>
-      </div>
+    <main class="content">
 
-      <h3 class="section-title">内訳（今月）</h3>
-      <div class="breakdown">
-        <div class="bd-row">
-          <span>家庭教師</span>
-          <span id="dashTutor">¥0</span>
-          <span class="bd-diff" id="dashDiffTutor">±0</span>
-        </div>
-        <div class="bd-row">
-          <span>スイング投資</span>
-          <span id="dashSwing">¥0</span>
-          <span class="bd-diff" id="dashDiffSwing">±0</span>
-        </div>
-        <div class="bd-row sub">
-          <span id="dashHoursA">生徒A: 0h</span>
-          <span id="dashHoursB">生徒B: 0h</span>
-          <span></span>
-        </div>
-      </div>
-    </section>
+      <!-- ===== ①記録入力 ===== -->
+      <section id="input" class="screen active">
+        <div class="form-block">
+          <label class="field-label">日付</label>
+          <input type="date" id="inDate" class="input">
 
-    <!-- ===== カレンダー（家庭教師） ===== -->
-    <section id="calendar" class="panel">
-      <div class="legend">
-        <span class="dot a"></span><span id="legendA">生徒A</span>
-        <span class="dot b"></span><span id="legendB">生徒B</span>
-      </div>
-      <div class="weekdays">
-        <span>日</span><span>月</span><span>火</span><span>水</span>
-        <span>木</span><span>金</span><span>土</span>
-      </div>
-      <div id="calendarGrid" class="calendar-grid"></div>
-      <div class="month-sum" id="tutorMonthSum">今月の家庭教師収入: ¥0</div>
-    </section>
+          <label class="field-label">総距離 (m)</label>
+          <input type="number" id="inDistance" class="input" inputmode="numeric" placeholder="例: 3000">
 
-    <!-- ===== スイング投資 ===== -->
-    <section id="swing" class="panel">
-      <div class="swing-add">
-        <input type="date" id="swingDate">
-        <input type="number" id="swingProfit" placeholder="損益（円・マイナス可）">
-        <input type="text" id="swingMemo" placeholder="メモ（任意）">
-        <button id="swingAddBtn" class="primary">追加</button>
-      </div>
-      <div class="month-sum" id="swingMonthSum">今月の損益: ¥0</div>
-      <table class="data-table">
-        <thead>
-          <tr><th>日付</th><th>損益</th><th>メモ</th><th></th></tr>
-        </thead>
-        <tbody id="swingTableBody"></tbody>
-      </table>
-    </section>
+          <label class="field-label">練習メモ</label>
+          <textarea id="inMemo" class="input" rows="3" placeholder="体感・練習内容など"></textarea>
+        </div>
 
-    <!-- ===== 設定 ===== -->
-    <section id="settings" class="panel">
-      <h3 class="section-title">マスタ設定</h3>
-      <div class="form-grid">
-        <label>生徒A 名前</label>
-        <input type="text" id="setNameA">
-        <label>生徒A 時給(円)</label>
-        <input type="number" id="setRateA">
-        <label>生徒B 名前</label>
-        <input type="text" id="setNameB">
-        <label>生徒B 時給(円)</label>
-        <input type="number" id="setRateB">
-      </div>
-      <button id="saveSettingsBtn" class="primary">設定を保存</button>
-    </section>
+        <h3 class="section-title">タイム記録を追加</h3>
+        <div class="form-block time-add">
+          <div class="row2">
+            <div>
+              <label class="field-label">種目</label>
+              <select id="inEvent" class="input"></select>
+            </div>
+            <div>
+              <label class="field-label">距離 (m)</label>
+              <input type="number" id="inTimeDistance" class="input" inputmode="numeric" placeholder="50">
+            </div>
+          </div>
+          <div class="row2">
+            <div>
+              <label class="field-label">タイム</label>
+              <input type="text" id="inTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
+            </div>
+            <div>
+              <label class="field-label">プール</label>
+              <select id="inPool" class="input"></select>
+            </div>
+          </div>
+          <button id="addTimeBtn" class="btn secondary block">＋ この記録を追加</button>
+        </div>
+
+        <ul id="pendingList" class="pending-list"></ul>
+
+        <button id="savePracticeBtn" class="btn primary block big">保存する</button>
+      </section>
+
+      <!-- ===== ②履歴一覧 ===== -->
+      <section id="history" class="screen">
+        <div class="filter-bar">
+          <label class="field-label">種目で絞り込み</label>
+          <select id="historyFilter" class="input"></select>
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </section>
+
+      <!-- ===== ③分析 ===== -->
+      <section id="analysis" class="screen">
+        <div class="row2">
+          <div>
+            <label class="field-label">種目</label>
+            <select id="anEvent" class="input"></select>
+          </div>
+          <div>
+            <label class="field-label">水路タイプ</label>
+            <select id="anLane" class="input">
+              <option value="両方">両方</option>
+              <option value="長水路">長水路</option>
+              <option value="短水路">短水路</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="period-tabs" id="periodTabs">
+          <button class="period-tab" data-period="week">週間</button>
+          <button class="period-tab" data-period="month">月間</button>
+          <button class="period-tab" data-period="3month">3か月</button>
+          <button class="period-tab active" data-period="all">全期間</button>
+        </div>
+
+        <div class="chart-hint">↑ 上にいくほど速い（タイムが小さい）</div>
+        <div class="chart-wrap">
+          <canvas id="analysisChart"></canvas>
+        </div>
+        <div id="analysisEmpty" class="empty-msg hidden">該当する記録がありません</div>
+      </section>
+
+      <!-- ===== ④種目マスタ ===== -->
+      <section id="events" class="screen">
+        <div class="form-block">
+          <label class="field-label">種目名</label>
+          <div class="row-inline">
+            <input type="text" id="newEventName" class="input" placeholder="例: 200Ba">
+            <button id="addEventBtn" class="btn primary">追加</button>
+          </div>
+        </div>
+        <ul id="eventList" class="master-list"></ul>
+      </section>
+
+      <!-- ===== ⑤プールマスタ ===== -->
+      <section id="pools" class="screen">
+        <div class="form-block">
+          <label class="field-label">プール名</label>
+          <input type="text" id="newPoolName" class="input" placeholder="例: 大学プール">
+          <label class="field-label">水路タイプ</label>
+          <div class="row-inline">
+            <select id="newPoolLane" class="input">
+              <option value="長水路">長水路</option>
+              <option value="短水路">短水路</option>
+            </select>
+            <button id="addPoolBtn" class="btn primary">追加</button>
+          </div>
+        </div>
+        <ul id="poolList" class="master-list"></ul>
+      </section>
+
+    </main>
   </div>
 
-  <!-- 勤務記録入力モーダル -->
-  <div id="modalOverlay" class="modal-overlay">
+  <!-- ===== 編集モーダル（履歴の編集） ===== -->
+  <div id="editOverlay" class="modal-overlay">
     <div class="modal">
-      <h3 id="modalDate">日付</h3>
-      <div id="modalRecords"></div>
-      <div class="modal-add">
-        <select id="modalStudent">
-          <option value="A">生徒A</option>
-          <option value="B">生徒B</option>
-        </select>
-        <input type="number" id="modalHours" step="0.5" placeholder="時間">
-        <input type="text" id="modalMemo" placeholder="メモ">
-        <button id="modalAddBtn" class="primary">追加</button>
+      <h3>練習記録を編集</h3>
+      <label class="field-label">日付</label>
+      <input type="date" id="editDate" class="input">
+      <label class="field-label">総距離 (m)</label>
+      <input type="number" id="editDistance" class="input" inputmode="numeric">
+      <label class="field-label">メモ</label>
+      <textarea id="editMemo" class="input" rows="2"></textarea>
+
+      <h4 class="section-title">タイム記録</h4>
+      <ul id="editTimeList" class="pending-list"></ul>
+
+      <div class="edit-add">
+        <div class="row2">
+          <select id="editEvent" class="input"></select>
+          <input type="number" id="editTimeDistance" class="input" placeholder="距離m">
+        </div>
+        <div class="row2">
+          <input type="text" id="editTime" class="input" placeholder="1:19.50">
+          <select id="editPool" class="input"></select>
+        </div>
+        <button id="editAddTimeBtn" class="btn secondary block">＋ タイムを追加</button>
       </div>
+
       <div class="modal-footer">
-        <button id="modalCloseBtn">閉じる</button>
+        <button id="editCancelBtn" class="btn">キャンセル</button>
+        <button id="editSaveBtn" class="btn primary">保存</button>
       </div>
     </div>
   </div>
 
-  <div id="loading" class="loading">処理中...</div>
+  <div id="loading" class="loading"><div class="spinner"></div></div>
+  <div id="toast" class="toast"></div>
 
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <?!= include('JavaScript'); ?>
 </body>
 </html>
