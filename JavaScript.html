@@ -8,6 +8,7 @@ var state = {
   events: [],          // 有効な種目マスタ
   pools: [],           // 有効なプールマスタ
   pending: [],         // 入力画面で追加待ちのタイム記録
+  inputFormat: 'TT',   // 記録入力画面で選択中の形式（TT / Short / Middle）
   editTimes: [],       // 編集モーダル内のタイム記録
   editLogId: null,
   analysisPeriod: 'all',
@@ -140,6 +141,101 @@ function refreshAllSelects() {
 // =====================================================
 // ① 記録入力
 // =====================================================
+
+// ---- 形式の切り替え（TT / Short / Middle） ----
+function switchFormat(fmt) {
+  state.inputFormat = fmt;
+  document.querySelectorAll('.format-tab').forEach(function (t) {
+    t.classList.toggle('active', t.dataset.format === fmt);
+  });
+  var isTT = (fmt === 'TT');
+  $('ttFields').classList.toggle('hidden', !isTT);
+  $('setFields').classList.toggle('hidden', isTT);
+  $('formatHint').textContent = isTT
+    ? 'TT（タイムトライアル）のみ分析グラフに反映されます'
+    : fmt + 'は本数・セットをまとめて記録できます（分析グラフには反映されません）';
+  if (!isTT) updateSetSummary();
+}
+
+// ---- Short / Middle：距離×本数×セットの一括入力 ----
+function setDims() {
+  var distance = parseInt($('setDistance').value, 10);
+  var reps = parseInt($('setReps').value, 10);
+  var sets = parseInt($('setSets').value, 10);
+  return { distance: distance, reps: reps, sets: sets };
+}
+function updateSetSummary() {
+  var d = setDims();
+  if (d.distance > 0 && d.reps > 0 && d.sets > 0) {
+    $('setSummary').textContent = d.distance + 'm × ' + d.reps + '本 × ' + d.sets +
+      'セット ＝ 全' + (d.reps * d.sets) + '本';
+  } else {
+    $('setSummary').textContent = '';
+  }
+}
+function buildTimeGrid() {
+  var event = $('inEvent').value;
+  var pool = $('inPool').value;
+  if (!event) { toast('種目を登録・選択してください', true); return; }
+  if (!pool) { toast('プールを登録・選択してください', true); return; }
+  var d = setDims();
+  if (!(d.distance > 0)) { toast('距離を入力してください', true); return; }
+  if (!(d.reps > 0)) { toast('本数を入力してください', true); return; }
+  if (!(d.sets > 0)) { toast('セット数を入力してください', true); return; }
+  if (d.reps * d.sets > 100) { toast('本数×セットが多すぎます（100本以内）', true); return; }
+
+  var grid = $('timeGrid');
+  grid.innerHTML = '';
+  for (var s = 1; s <= d.sets; s++) {
+    var setBox = el('div', 'grid-set');
+    if (d.sets > 1) setBox.appendChild(el('div', 'grid-set-title', s + 'セット目'));
+    var rows = el('div', 'grid-rows');
+    for (var r = 1; r <= d.reps; r++) {
+      var cell = el('div', 'grid-cell');
+      cell.appendChild(el('span', 'rep-label', r + '本目'));
+      var input = el('input', 'input');
+      input.type = 'text';
+      input.setAttribute('inputmode', 'decimal');
+      input.placeholder = '1:19.50';
+      input.dataset.set = s;
+      input.dataset.rep = r;
+      cell.appendChild(input);
+      rows.appendChild(cell);
+    }
+    setBox.appendChild(rows);
+    grid.appendChild(setBox);
+  }
+  $('addGridBtn').classList.remove('hidden');
+}
+function addGridToPending() {
+  var event = $('inEvent').value;
+  var pool = $('inPool').value;
+  var d = setDims();
+  var inputs = $('timeGrid').querySelectorAll('input');
+  var added = [];
+  for (var i = 0; i < inputs.length; i++) {
+    var raw = inputs[i].value.trim();
+    if (raw === '') continue; // 空欄はスキップ（未計測の本があってもOK）
+    var seconds;
+    try { seconds = parseTimeToSeconds(raw); }
+    catch (e) {
+      toast(inputs[i].dataset.set + 'セット目' + inputs[i].dataset.rep + '本目: ' + e.message, true);
+      return;
+    }
+    added.push({
+      event: event, distance: d.distance, time: raw, seconds: seconds,
+      pool: pool, format: state.inputFormat
+    });
+  }
+  if (!added.length) { toast('タイムを1本以上入力してください', true); return; }
+  added.forEach(function (rec) { state.pending.push(rec); });
+  // グリッドをリセット
+  $('timeGrid').innerHTML = '';
+  $('addGridBtn').classList.add('hidden');
+  renderPending();
+  toast(added.length + '本を追加しました');
+}
+
 function addPendingTime() {
   var event = $('inEvent').value;
   var distance = $('inTimeDistance').value;
@@ -155,11 +251,18 @@ function addPendingTime() {
 
   state.pending.push({
     event: event, distance: Number(distance), time: timeRaw.trim(),
-    seconds: seconds, pool: pool
+    seconds: seconds, pool: pool, format: 'TT'
   });
   $('inTimeDistance').value = '';
   $('inTime').value = '';
   renderPending();
+}
+
+function pendingItemHtml(t) {
+  return '<span class="ev">' + esc(t.event) + '</span> ' +
+    esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
+    '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' +
+    '<div class="sub">' + esc(t.pool) + '</div>';
 }
 
 function renderPending() {
@@ -168,9 +271,7 @@ function renderPending() {
   state.pending.forEach(function (t, i) {
     var li = el('li');
     var info = el('div', 'pending-info');
-    info.innerHTML = '<span class="ev">' + esc(t.event) + '</span> ' +
-      esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
-      '<div class="sub">' + esc(t.pool) + '</div>';
+    info.innerHTML = pendingItemHtml(t);
     var btn = el('button', 'icon-btn', '✕');
     btn.onclick = function () { state.pending.splice(i, 1); renderPending(); };
     li.appendChild(info); li.appendChild(btn);
@@ -190,7 +291,7 @@ function savePractice() {
     distance: distance ? Number(distance) : 0,
     memo: $('inMemo').value,
     times: state.pending.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool };
+      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool, format: t.format };
     })
   };
   showLoading(true);
@@ -204,6 +305,8 @@ function savePractice() {
     $('inMemo').value = '';
     $('inTimeDistance').value = '';
     $('inTime').value = '';
+    $('timeGrid').innerHTML = '';
+    $('addGridBtn').classList.add('hidden');
   }).catch(function (err) {
     showLoading(false);
     toast('保存に失敗: ' + err.message, true);
@@ -307,7 +410,7 @@ function deleteTimeRecord(id) {
 function openEdit(log) {
   state.editLogId = log.id;
   state.editTimes = log.times.map(function (t) {
-    return { event: t.event, distance: t.distance, time: t.timeText, seconds: t.seconds, pool: t.pool };
+    return { event: t.event, distance: t.distance, time: t.timeText, seconds: t.seconds, pool: t.pool, format: t.format || 'TT' };
   });
   $('editDate').value = log.date;
   $('editDistance').value = log.distance;
@@ -326,9 +429,7 @@ function renderEditTimes() {
   state.editTimes.forEach(function (t, i) {
     var li = el('li');
     var info = el('div', 'pending-info');
-    info.innerHTML = '<span class="ev">' + esc(t.event) + '</span> ' +
-      esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
-      '<div class="sub">' + esc(t.pool) + '</div>';
+    info.innerHTML = pendingItemHtml(t);
     var btn = el('button', 'icon-btn', '✕');
     btn.onclick = function () { state.editTimes.splice(i, 1); renderEditTimes(); };
     li.appendChild(info); li.appendChild(btn);
@@ -340,13 +441,14 @@ function addEditTime() {
   var distance = $('editTimeDistance').value;
   var timeRaw = $('editTime').value;
   var pool = $('editPool').value;
+  var format = $('editFormat').value;
   if (!event) { toast('種目を選択してください', true); return; }
   if (!distance) { toast('距離を入力してください', true); return; }
   if (!pool) { toast('プールを選択してください', true); return; }
   var seconds;
   try { seconds = parseTimeToSeconds(timeRaw); }
   catch (e) { toast(e.message, true); return; }
-  state.editTimes.push({ event: event, distance: Number(distance), time: timeRaw.trim(), seconds: seconds, pool: pool });
+  state.editTimes.push({ event: event, distance: Number(distance), time: timeRaw.trim(), seconds: seconds, pool: pool, format: format });
   $('editTimeDistance').value = '';
   $('editTime').value = '';
   renderEditTimes();
@@ -360,7 +462,7 @@ function saveEdit() {
     distance: $('editDistance').value ? Number($('editDistance').value) : 0,
     memo: $('editMemo').value,
     times: state.editTimes.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool };
+      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool, format: t.format || 'TT' };
     })
   };
   showLoading(true);
@@ -578,7 +680,15 @@ function bindEvents() {
   });
 
   // 記録入力
+  document.querySelectorAll('.format-tab').forEach(function (tab) {
+    tab.onclick = function () { switchFormat(tab.dataset.format); };
+  });
   $('addTimeBtn').onclick = addPendingTime;
+  $('buildGridBtn').onclick = buildTimeGrid;
+  $('addGridBtn').onclick = addGridToPending;
+  ['setDistance', 'setReps', 'setSets'].forEach(function (id) {
+    $(id).addEventListener('input', updateSetSummary);
+  });
   $('savePracticeBtn').onclick = savePractice;
 
   // 履歴

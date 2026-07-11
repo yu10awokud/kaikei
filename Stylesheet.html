@@ -94,6 +94,7 @@
     padding: 12px 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px;
   }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
   .row-inline { display: flex; gap: 10px; align-items: stretch; }
   .row-inline .input { flex: 1; }
   .row-inline .btn { white-space: nowrap; }
@@ -110,6 +111,35 @@
   .btn.big { padding: 16px; font-size: 17px; margin-top: 6px; }
   .btn.danger { background: var(--danger); color: #fff; }
   .btn:active { transform: scale(.98); }
+
+  /* ===== 形式タブ ===== */
+  .format-tabs { display: flex; gap: 6px; margin-bottom: 4px; }
+  .format-tab {
+    flex: 1; background: var(--card); border: 1.5px solid var(--border);
+    color: var(--muted); border-radius: 8px; padding: 10px 0; font-size: 14px;
+    cursor: pointer; font-weight: 600;
+  }
+  .format-tab.active { background: var(--blue-500); color: #fff; border-color: var(--blue-500); }
+  .format-hint { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .set-summary { font-size: 14px; color: var(--blue-700); font-weight: 700; margin: 10px 0 8px; min-height: 1em; }
+
+  /* ===== 一括入力グリッド ===== */
+  .time-grid { margin: 10px 0; }
+  .grid-set { margin-bottom: 12px; }
+  .grid-set-title { font-size: 13px; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+  .grid-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .grid-cell { display: flex; align-items: center; gap: 6px; }
+  .grid-cell .rep-label { font-size: 12px; color: var(--muted); white-space: nowrap; width: 34px; }
+  .grid-cell .input { padding: 10px; }
+
+  /* ===== 形式バッジ ===== */
+  .type-badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px;
+    border-radius: 10px; margin-left: 6px; vertical-align: middle;
+  }
+  .type-badge.TT { background: #dff5ee; color: var(--accent); }
+  .type-badge.Short { background: #fdeede; color: #d98a1f; }
+  .type-badge.Middle { background: #e7e9fb; color: #5b60c9; }
 
   /* ===== 追加待ちリスト ===== */
   .pending-list { list-style: none; padding: 0; margin: 10px 0; }

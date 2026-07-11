@@ -39,27 +39,61 @@
 
         <h3 class="section-title">タイム記録を追加</h3>
         <div class="form-block time-add">
+          <label class="field-label">形式</label>
+          <div class="format-tabs" id="formatTabs">
+            <button type="button" class="format-tab active" data-format="TT">TT</button>
+            <button type="button" class="format-tab" data-format="Short">Short</button>
+            <button type="button" class="format-tab" data-format="Middle">Middle</button>
+          </div>
+          <div class="format-hint" id="formatHint">TT（タイムトライアル）のみ分析グラフに反映されます</div>
+
           <div class="row2">
             <div>
               <label class="field-label">種目</label>
               <select id="inEvent" class="input"></select>
             </div>
             <div>
-              <label class="field-label">距離 (m)</label>
-              <input type="number" id="inTimeDistance" class="input" inputmode="numeric" placeholder="50">
-            </div>
-          </div>
-          <div class="row2">
-            <div>
-              <label class="field-label">タイム</label>
-              <input type="text" id="inTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
-            </div>
-            <div>
               <label class="field-label">プール</label>
               <select id="inPool" class="input"></select>
             </div>
           </div>
-          <button id="addTimeBtn" class="btn secondary block">＋ この記録を追加</button>
+
+          <!-- TT: 1本ずつ入力 -->
+          <div id="ttFields">
+            <div class="row2">
+              <div>
+                <label class="field-label">距離 (m)</label>
+                <input type="number" id="inTimeDistance" class="input" inputmode="numeric" placeholder="50">
+              </div>
+              <div>
+                <label class="field-label">タイム</label>
+                <input type="text" id="inTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
+              </div>
+            </div>
+            <button id="addTimeBtn" class="btn secondary block">＋ この記録を追加</button>
+          </div>
+
+          <!-- Short / Middle: 距離 × 本数 × セット をまとめて入力 -->
+          <div id="setFields" class="hidden">
+            <div class="row3">
+              <div>
+                <label class="field-label">距離 (m)</label>
+                <input type="number" id="setDistance" class="input" inputmode="numeric" placeholder="50">
+              </div>
+              <div>
+                <label class="field-label">本数</label>
+                <input type="number" id="setReps" class="input" inputmode="numeric" placeholder="4">
+              </div>
+              <div>
+                <label class="field-label">セット</label>
+                <input type="number" id="setSets" class="input" inputmode="numeric" placeholder="2">
+              </div>
+            </div>
+            <div class="set-summary" id="setSummary"></div>
+            <button id="buildGridBtn" class="btn secondary block">入力欄を作成</button>
+            <div id="timeGrid" class="time-grid"></div>
+            <button id="addGridBtn" class="btn secondary block hidden">＋ まとめてリストに追加</button>
+          </div>
         </div>
 
         <ul id="pendingList" class="pending-list"></ul>
@@ -162,6 +196,11 @@
           <input type="text" id="editTime" class="input" placeholder="1:19.50">
           <select id="editPool" class="input"></select>
         </div>
+        <select id="editFormat" class="input">
+          <option value="TT">TT（分析に反映）</option>
+          <option value="Short">Short</option>
+          <option value="Middle">Middle</option>
+        </select>
         <button id="editAddTimeBtn" class="btn secondary block">＋ タイムを追加</button>
       </div>
 

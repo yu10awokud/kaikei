@@ -20,6 +20,10 @@ const SHEET_POOL     = 'PoolMaster';    // プールマスタ
 const STATUS_ACTIVE   = '有効';
 const STATUS_ARCHIVED = 'アーカイブ';
 
+// タイム記録の形式。TT（タイムトライアル）のみ分析グラフに反映する。
+const TIME_FORMATS = ['TT', 'Short', 'Middle'];
+const DEFAULT_FORMAT = 'TT';
+
 // 初回セットアップ時に投入する種目・プールの初期候補
 const DEFAULT_EVENTS = ['Fr', 'Ba', 'Br', 'Fly', 'IM'];
 const DEFAULT_POOLS  = []; // プールはユーザーに登録してもらう
@@ -57,10 +61,13 @@ function setupSheets_() {
   let time = ss.getSheetByName(SHEET_TIME);
   if (!time) {
     time = ss.insertSheet(SHEET_TIME);
-    time.getRange(1, 1, 1, 7)
-      .setValues([['ID', '練習ログID', '日付', '種目', '距離', 'タイム(秒)', 'プール']])
+    time.getRange(1, 1, 1, 8)
+      .setValues([['ID', '練習ログID', '日付', '種目', '距離', 'タイム(秒)', 'プール', '形式']])
       .setFontWeight('bold');
     time.setFrozenRows(1);
+  } else if (String(time.getRange(1, 8).getValue()) !== '形式') {
+    // 既存シートに「形式」列が無ければ追加（旧データは TT 扱い）
+    time.getRange(1, 8).setValue('形式').setFontWeight('bold');
   }
 
   // 種目マスタ
@@ -253,11 +260,14 @@ function savePractice(payload) {
 
   // タイム記録を事前に検証・変換（1件でも不正なら保存しない）
   const times = (payload.times || []).map(function (t) {
+    let format = String(t.format || DEFAULT_FORMAT);
+    if (TIME_FORMATS.indexOf(format) < 0) format = DEFAULT_FORMAT;
     return {
       event: String(t.event || '').trim(),
       distance: Number(t.distance) || 0,
       seconds: parseTimeToSeconds_(t.time),
-      pool: String(t.pool || '').trim()
+      pool: String(t.pool || '').trim(),
+      format: format
     };
   });
 
@@ -286,9 +296,9 @@ function savePractice(payload) {
   // タイム記録を追加
   if (times.length) {
     const rows = times.map(function (t) {
-      return [Utilities.getUuid(), logId, payload.date, t.event, t.distance, t.seconds, t.pool];
+      return [Utilities.getUuid(), logId, payload.date, t.event, t.distance, t.seconds, t.pool, t.format];
     });
-    timeSheet.getRange(timeSheet.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
+    timeSheet.getRange(timeSheet.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
   }
 
   return { ok: true, id: logId };
@@ -321,7 +331,8 @@ function getHistory(eventFilter) {
       distance: Number(row[4]),
       seconds: Number(row[5]),
       timeText: formatSeconds_(Number(row[5])),
-      pool: String(row[6] || '')
+      pool: String(row[6] || ''),
+      format: String(row[7] || DEFAULT_FORMAT)
     });
   }
 
@@ -405,6 +416,10 @@ function getAnalysisData(eventName, laneType, period) {
     const row = values[i];
     if (!row[0]) continue;
     if (String(row[3]) !== eventName) continue;
+
+    // 分析には TT（タイムトライアル）の記録のみ反映する（旧データは TT 扱い）
+    const format = String(row[7] || DEFAULT_FORMAT);
+    if (format !== 'TT') continue;
 
     const dateStr = fmtDate_(row[2], tz);
     if (minDate && dateStr < minDate) continue;
