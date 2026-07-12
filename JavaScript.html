@@ -800,10 +800,7 @@ function renderBest(best) {
     var schema = BEST_SCHEMA[kind];
 
     var block = el('div', 'best-block');
-    var title = el('h3', 'section-title');
-    title.appendChild(document.createTextNode(kind + '記録　'));
-    title.appendChild(el('span', 'best-kind-badge', kind));
-    block.appendChild(title);
+    block.appendChild(el('div', 'best-caption', kind + '記録'));
 
     var scroll = el('div', 'best-scroll');
     var table = el('table', 'best-table');
@@ -828,10 +825,11 @@ function renderBest(best) {
         } else {
           var rec = best[kind + '|' + rowDef.event + '|' + d];
           if (rec) {
-            td.className = 'has';
-            td.innerHTML = '<span class="best-time">' + esc(rec.timeText) + '</span>' +
-              '<span class="best-meta">' + esc(rec.date) + '</span>';
-            td.title = (rec.meetName || '') + ' / ' + (rec.lane || '') + ' / ' + rec.date;
+            var btn = el('button', 'best-cell', rec.timeText);
+            (function (info) {
+              btn.onclick = function () { openBestDetail(info); };
+            })({ kind: kind, event: rowDef.event, distance: d, rec: rec });
+            td.appendChild(btn);
           } else {
             td.className = 'empty';
             td.textContent = '—';
@@ -847,6 +845,23 @@ function renderBest(best) {
     container.appendChild(block);
   });
 }
+
+function openBestDetail(info) {
+  var rec = info.rec;
+  $('bdTitle').textContent = info.event + ' ' + info.distance + 'm';
+  var rows = [
+    ['タイム', '<span class="bd-time">' + esc(rec.timeText) + '</span>'],
+    ['種別', esc(info.kind)],
+    ['大会名', esc(rec.meetName || '（未入力）')],
+    ['日付', esc(rec.date)],
+    ['水路タイプ', esc(rec.lane || '-')]
+  ];
+  $('bdBody').innerHTML = rows.map(function (r) {
+    return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>';
+  }).join('');
+  $('bestDetailOverlay').classList.add('show');
+}
+function closeBestDetail() { $('bestDetailOverlay').classList.remove('show'); }
 
 // =====================================================
 // ④ 種目マスタ
@@ -1008,6 +1023,10 @@ function bindEvents() {
   document.querySelectorAll('#bestLaneTabs .format-tab').forEach(function (tab) {
     tab.onclick = function () { switchBestLane(tab.dataset.lane); };
   });
+  $('bdCloseBtn').onclick = closeBestDetail;
+  $('bestDetailOverlay').onclick = function (e) {
+    if (e.target === $('bestDetailOverlay')) closeBestDetail();
+  };
 
   // マスタ
   $('addEventBtn').onclick = addEvent;
