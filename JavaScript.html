@@ -607,7 +607,8 @@ function renderTimeChart(data) {
               var c = combined[item.dataIndex];
               var p = c.ref;
               if (c.kind === 'meet') {
-                return ['🏅 ' + (p.meetName || '試合'), '距離: ' + p.distance + 'm',
+                return ['🏅 ' + (p.meetName || '試合') + '（' + (p.kind || '正式') + '）',
+                        '距離: ' + p.distance + 'm',
                         'タイム: ' + p.timeText, '水路: ' + (p.lane || '-')];
               }
               return ['練習(TT)', '距離: ' + p.distance + 'm', 'タイム: ' + p.timeText,
@@ -692,7 +693,8 @@ function renderMeets(records) {
     card.appendChild(head);
     var body = el('div', 'history-memo');
     body.innerHTML = '<strong>' + esc(m.event) + ' ' + esc(m.distance) + 'm</strong>　' +
-      '<span class="tm">' + esc(m.timeText) + '</span>　<span class="master-sub">' + esc(m.lane) + '</span>';
+      '<span class="tm">' + esc(m.timeText) + '</span>　' +
+      '<span class="master-sub">' + esc(m.lane) + ' / ' + esc(m.kind || '正式') + '</span>';
     card.appendChild(body);
     var actions = el('div', 'history-actions');
     var delBtn = el('button', 'btn danger', '削除');
@@ -710,7 +712,8 @@ function saveMeet() {
     lane: $('meetLane').value,
     event: $('meetEvent').value,
     distance: $('meetDistance').value ? Number($('meetDistance').value) : 0,
-    time: $('meetTime').value
+    time: $('meetTime').value,
+    kind: $('meetKind').value
   };
   if (!payload.date) { toast('日付を入力してください', true); return; }
   if (!payload.meetName.trim()) { toast('大会名を入力してください', true); return; }

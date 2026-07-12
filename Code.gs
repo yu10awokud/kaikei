@@ -25,6 +25,10 @@ const STATUS_ARCHIVED = 'アーカイブ';
 const TIME_FORMATS = ['TT', 'Short', 'Middle'];
 const DEFAULT_FORMAT = 'TT';
 
+// 試合記録の種別（正式記録 / 引継ぎ）
+const MEET_KINDS = ['正式', '引継ぎ'];
+const DEFAULT_MEET_KIND = '正式';
+
 // 初回セットアップ時に投入する種目・プールの初期候補
 const DEFAULT_EVENTS = ['Fr', 'Ba', 'Br', 'Fly', 'IM'];
 const DEFAULT_POOLS  = []; // プールはユーザーに登録してもらう
@@ -103,10 +107,13 @@ function setupSheets_() {
   let meet = ss.getSheetByName(SHEET_MEET);
   if (!meet) {
     meet = ss.insertSheet(SHEET_MEET);
-    meet.getRange(1, 1, 1, 7)
-      .setValues([['ID', '大会名', '日付', '水路タイプ', '種目', '距離', 'タイム(秒)']])
+    meet.getRange(1, 1, 1, 8)
+      .setValues([['ID', '大会名', '日付', '水路タイプ', '種目', '距離', 'タイム(秒)', '種別']])
       .setFontWeight('bold');
     meet.setFrozenRows(1);
+  } else if (String(meet.getRange(1, 8).getValue()) !== '種別') {
+    // 既存シートに「種別」列が無ければ追加（旧データは正式扱い）
+    meet.getRange(1, 8).setValue('種別').setFontWeight('bold');
   }
 
   // デフォルトの空シートが残っていれば削除
@@ -473,7 +480,8 @@ function getAnalysisData(eventName, laneType, period) {
       distance: Number(row[5]),
       seconds: Number(row[6]),
       timeText: formatSeconds_(Number(row[6])),
-      lane: lane
+      lane: lane,
+      kind: String(row[7] || DEFAULT_MEET_KIND)
     });
   }
   meet.sort((a, b) => a.date.localeCompare(b.date));
@@ -525,7 +533,8 @@ function getMeetRecords() {
       event: String(row[4] || ''),
       distance: Number(row[5]) || 0,
       seconds: Number(row[6]) || 0,
-      timeText: formatSeconds_(Number(row[6]) || 0)
+      timeText: formatSeconds_(Number(row[6]) || 0),
+      kind: String(row[7] || DEFAULT_MEET_KIND)
     });
   }
   records.sort((a, b) => b.date.localeCompare(a.date));
@@ -545,6 +554,8 @@ function saveMeetRecord(payload) {
   }
   if (!String(payload.event || '').trim()) throw new Error('種目を選択してください');
   const seconds = parseTimeToSeconds_(payload.time);
+  let kind = String(payload.kind || DEFAULT_MEET_KIND);
+  if (MEET_KINDS.indexOf(kind) < 0) kind = DEFAULT_MEET_KIND;
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_MEET);
   const id = payload.id || Utilities.getUuid();
@@ -555,12 +566,13 @@ function saveMeetRecord(payload) {
     payload.lane,
     String(payload.event).trim(),
     Number(payload.distance) || 0,
-    seconds
+    seconds,
+    kind
   ];
   if (payload.id) {
     const rowIndex = findRowById_(sheet, payload.id);
     if (rowIndex > 0) {
-      sheet.getRange(rowIndex, 1, 1, 7).setValues([row]);
+      sheet.getRange(rowIndex, 1, 1, 8).setValues([row]);
       return { ok: true, id: id };
     }
   }

@@ -186,8 +186,19 @@
               <input type="number" id="meetDistance" class="input" inputmode="numeric" placeholder="100">
             </div>
           </div>
-          <label class="field-label">タイム</label>
-          <input type="text" id="meetTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
+          <div class="row2">
+            <div>
+              <label class="field-label">種別</label>
+              <select id="meetKind" class="input">
+                <option value="正式">正式</option>
+                <option value="引継ぎ">引継ぎ</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">タイム</label>
+              <input type="text" id="meetTime" class="input" inputmode="decimal" placeholder="1:19.50 / 30.20">
+            </div>
+          </div>
           <button id="saveMeetBtn" class="btn primary block big">試合記録を保存</button>
         </div>
         <h3 class="section-title">試合記録一覧</h3>
