@@ -126,7 +126,7 @@ function switchScreen(name) {
 }
 function onScreenEnter(name) {
   if (name === 'history') loadHistory();
-  else if (name === 'analysis') loadAnalysis();
+  else if (name === 'analysis') enterAnalysis();
   else if (name === 'meets') loadMeets();
   else if (name === 'best') loadBest();
   else if (name === 'events') renderEventMaster();
@@ -539,7 +539,40 @@ function switchAnalysisMode(mode) {
   $('chartHint').textContent = isTime
     ? '↑ 上にいくほど速い（タイムが小さい）'
     : '日ごとの総距離(m)の推移';
-  loadAnalysis();
+  enterAnalysis();
+}
+
+// 分析画面に入ったとき／モード切替時の起点
+function enterAnalysis() {
+  if (state.analysisMode === 'distance') { loadAnalysis(); }
+  else { loadAnalysisDistances(true); }
+}
+
+// 選択中の種目で記録のある距離を取得し、距離プルダウンを更新する
+function loadAnalysisDistances(preserve) {
+  var eventName = $('anEvent').value;
+  var sel = $('anDistance');
+  if (!eventName) { sel.innerHTML = ''; loadAnalysis(); return; }
+  var prev = sel.value;
+  showLoading(true);
+  call('getEventDistances', [eventName]).then(function (dists) {
+    showLoading(false);
+    sel.innerHTML = '';
+    if (!dists.length) {
+      var o = el('option', null, '記録なし'); o.value = '';
+      sel.appendChild(o);
+    } else {
+      dists.forEach(function (d) {
+        var o = el('option', null, d + 'm'); o.value = d;
+        sel.appendChild(o);
+      });
+      if (preserve && dists.indexOf(Number(prev)) >= 0) sel.value = prev;
+    }
+    loadAnalysis();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
+  });
 }
 
 function loadAnalysis() {
@@ -561,9 +594,10 @@ function loadAnalysis() {
     showAnalysisEmpty('種目を登録・選択してください');
     return;
   }
+  var distance = $('anDistance').value ? Number($('anDistance').value) : 0;
   var lane = $('anLane').value;
   showLoading(true);
-  call('getAnalysisData', [eventName, lane, state.analysisPeriod]).then(function (data) {
+  call('getAnalysisData', [eventName, distance, lane, state.analysisPeriod]).then(function (data) {
     showLoading(false);
     renderTimeChart(data);
   }).catch(function (err) {
@@ -1005,7 +1039,8 @@ function bindEvents() {
   document.querySelectorAll('#analysisModeTabs .format-tab').forEach(function (tab) {
     tab.onclick = function () { switchAnalysisMode(tab.dataset.mode); };
   });
-  $('anEvent').onchange = loadAnalysis;
+  $('anEvent').onchange = function () { loadAnalysisDistances(false); };
+  $('anDistance').onchange = loadAnalysis;
   $('anLane').onchange = loadAnalysis;
   document.querySelectorAll('.period-tab').forEach(function (tab) {
     tab.onclick = function () {

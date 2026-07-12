@@ -417,18 +417,49 @@ function periodMinDate_(period, tz) {
 }
 
 /**
- * 種目・水路タイプ・期間で絞り込んだタイムを日付昇順で返す。
+ * ある種目で記録のある距離の一覧（昇順・重複なし）を返す。
+ * 練習(TT) と 試合記録 の両方を対象にする。
+ */
+function getEventDistances(eventName) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const set = {};
+
+  const t = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
+  for (let i = 1; i < t.length; i++) {
+    const row = t[i];
+    if (!row[0]) continue;
+    if (String(row[3]) !== eventName) continue;
+    if (String(row[7] || DEFAULT_FORMAT) !== 'TT') continue;
+    const d = Number(row[4]);
+    if (d > 0) set[d] = true;
+  }
+  const m = ss.getSheetByName(SHEET_MEET).getDataRange().getValues();
+  for (let i = 1; i < m.length; i++) {
+    const row = m[i];
+    if (!row[0]) continue;
+    if (String(row[4]) !== eventName) continue;
+    const d = Number(row[5]);
+    if (d > 0) set[d] = true;
+  }
+  return Object.keys(set).map(Number).sort(function (a, b) { return a - b; });
+}
+
+/**
+ * 種目・距離・水路タイプ・期間で絞り込んだタイムを日付昇順で返す。
  * 練習（TT）と試合記録の両方を返す。
  *   { practice: [...], meet: [...] }
+ * distance : 対象距離(m)。0/falsy の場合は距離で絞り込まない。
  * laneType : '長水路' | '短水路' | '両方'
  * period   : 'week'(7日) | 'month'(30日) | '3month'(90日) | 'all'
  */
-function getAnalysisData(eventName, laneType, period) {
+function getAnalysisData(eventName, distance, laneType, period) {
   setupSheets_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
   const laneMap = poolLaneMap_();
   const minDate = periodMinDate_(period, tz);
+  const dist = Number(distance) || 0;
 
   // ---- 練習タイム（TTのみ） ----
   const timeValues = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
@@ -437,6 +468,7 @@ function getAnalysisData(eventName, laneType, period) {
     const row = timeValues[i];
     if (!row[0]) continue;
     if (String(row[3]) !== eventName) continue;
+    if (dist && Number(row[4]) !== dist) continue;
 
     // 分析には TT（タイムトライアル）の記録のみ反映する（旧データは TT 扱い）
     const format = String(row[7] || DEFAULT_FORMAT);
@@ -467,6 +499,7 @@ function getAnalysisData(eventName, laneType, period) {
     const row = meetValues[i];
     if (!row[0]) continue;
     if (String(row[4]) !== eventName) continue;
+    if (dist && Number(row[5]) !== dist) continue;
 
     const dateStr = fmtDate_(row[2], tz);
     if (minDate && dateStr < minDate) continue;

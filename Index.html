@@ -126,19 +126,23 @@
           <button type="button" class="format-tab" data-mode="distance">総距離推移</button>
         </div>
 
-        <div id="anTimeFilters" class="row2">
-          <div>
-            <label class="field-label">種目</label>
-            <select id="anEvent" class="input"></select>
+        <div id="anTimeFilters">
+          <div class="row2">
+            <div>
+              <label class="field-label">種目</label>
+              <select id="anEvent" class="input"></select>
+            </div>
+            <div>
+              <label class="field-label">距離</label>
+              <select id="anDistance" class="input"></select>
+            </div>
           </div>
-          <div>
-            <label class="field-label">水路タイプ</label>
-            <select id="anLane" class="input">
-              <option value="両方">両方</option>
-              <option value="長水路">長水路</option>
-              <option value="短水路">短水路</option>
-            </select>
-          </div>
+          <label class="field-label">水路タイプ</label>
+          <select id="anLane" class="input">
+            <option value="両方">両方</option>
+            <option value="長水路">長水路</option>
+            <option value="短水路">短水路</option>
+          </select>
         </div>
 
         <div class="period-tabs" id="periodTabs">
