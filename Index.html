@@ -18,6 +18,7 @@
       <button class="nav-item" data-screen="history">📅 履歴一覧</button>
       <button class="nav-item" data-screen="analysis">📈 分析</button>
       <button class="nav-item" data-screen="meets">🏅 試合記録</button>
+      <button class="nav-item" data-screen="best">🏆 ベスト</button>
       <button class="nav-item" data-screen="events">🏷 種目マスタ</button>
       <button class="nav-item" data-screen="pools">🏊 プールマスタ</button>
     </nav>
@@ -203,6 +204,18 @@
         </div>
         <h3 class="section-title">試合記録一覧</h3>
         <div id="meetList" class="history-list"></div>
+      </section>
+
+      <!-- ===== ベスト表 ===== -->
+      <section id="best" class="screen">
+        <label class="field-label">水路タイプ</label>
+        <div class="format-tabs" id="bestLaneTabs">
+          <button type="button" class="format-tab active" data-lane="両方">両方</button>
+          <button type="button" class="format-tab" data-lane="長水路">長水路</button>
+          <button type="button" class="format-tab" data-lane="短水路">短水路</button>
+        </div>
+        <div class="format-hint">試合記録から種別・種目・距離ごとの最速タイムを自動集計します</div>
+        <div id="bestTables"></div>
       </section>
 
       <!-- ===== ④種目マスタ ===== -->

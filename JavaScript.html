@@ -14,7 +14,31 @@ var state = {
   analysisPeriod: 'all',
   analysisMode: 'time',   // 'time'（タイム推移） | 'distance'（総距離推移）
   historyLogs: [],        // 履歴タブで読み込んだログ（日付絞り込み用に保持）
+  bestLane: '両方',       // ベスト表の水路タイプ絞り込み
   chart: null
+};
+
+// ベスト表の構成（種別ごとに 種目・距離 の対応を定義）
+// 400/800は正式・Frのみ。引継ぎはBa・IMが存在せず、距離はFr=50/100/200、Br/Fly=50/100。
+var BEST_SCHEMA = {
+  '正式': {
+    columns: [50, 100, 200, 400, 800],
+    rows: [
+      { event: 'Fr',  dists: [50, 100, 200, 400, 800] },
+      { event: 'Ba',  dists: [50, 100, 200] },
+      { event: 'Br',  dists: [50, 100, 200] },
+      { event: 'Fly', dists: [50, 100, 200] },
+      { event: 'IM',  dists: [50, 100, 200] }
+    ]
+  },
+  '引継ぎ': {
+    columns: [50, 100, 200],
+    rows: [
+      { event: 'Fr',  dists: [50, 100, 200] },
+      { event: 'Br',  dists: [50, 100] },
+      { event: 'Fly', dists: [50, 100] }
+    ]
+  }
 };
 
 // ---- ショートカット ----
@@ -84,7 +108,7 @@ function formatSeconds(sec) {
 // =====================================================
 // ナビゲーション（ドロワー + SPA切替）
 // =====================================================
-var TITLES = { input: '記録入力', history: '履歴一覧', analysis: '分析', meets: '試合記録', events: '種目マスタ', pools: 'プールマスタ' };
+var TITLES = { input: '記録入力', history: '履歴一覧', analysis: '分析', meets: '試合記録', best: 'ベスト', events: '種目マスタ', pools: 'プールマスタ' };
 
 function openDrawer(b) {
   $('drawer').classList.toggle('open', b);
@@ -104,6 +128,7 @@ function onScreenEnter(name) {
   if (name === 'history') loadHistory();
   else if (name === 'analysis') loadAnalysis();
   else if (name === 'meets') loadMeets();
+  else if (name === 'best') loadBest();
   else if (name === 'events') renderEventMaster();
   else if (name === 'pools') renderPoolMaster();
 }
@@ -746,6 +771,84 @@ function deleteMeet(m) {
 }
 
 // =====================================================
+// ベスト表
+// =====================================================
+function switchBestLane(lane) {
+  state.bestLane = lane;
+  document.querySelectorAll('#bestLaneTabs .format-tab').forEach(function (t) {
+    t.classList.toggle('active', t.dataset.lane === lane);
+  });
+  loadBest();
+}
+
+function loadBest() {
+  showLoading(true);
+  call('getBestTimes', [state.bestLane]).then(function (best) {
+    showLoading(false);
+    renderBest(best || {});
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
+  });
+}
+
+function renderBest(best) {
+  var container = $('bestTables');
+  container.innerHTML = '';
+
+  Object.keys(BEST_SCHEMA).forEach(function (kind) {
+    var schema = BEST_SCHEMA[kind];
+
+    var block = el('div', 'best-block');
+    var title = el('h3', 'section-title');
+    title.appendChild(document.createTextNode(kind + '記録　'));
+    title.appendChild(el('span', 'best-kind-badge', kind));
+    block.appendChild(title);
+
+    var scroll = el('div', 'best-scroll');
+    var table = el('table', 'best-table');
+
+    // ヘッダー（距離）
+    var thead = el('thead');
+    var htr = el('tr');
+    htr.appendChild(el('th', 'corner', '種目＼距離'));
+    schema.columns.forEach(function (d) { htr.appendChild(el('th', null, d + 'm')); });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+
+    // 本体（種目 × 距離）
+    var tbody = el('tbody');
+    schema.rows.forEach(function (rowDef) {
+      var tr = el('tr');
+      tr.appendChild(el('th', 'row-head', rowDef.event));
+      schema.columns.forEach(function (d) {
+        var td = el('td');
+        if (rowDef.dists.indexOf(d) < 0) {
+          td.className = 'na';                 // 対象外（例: 引継ぎのBr/Fly 200m）
+        } else {
+          var rec = best[kind + '|' + rowDef.event + '|' + d];
+          if (rec) {
+            td.className = 'has';
+            td.innerHTML = '<span class="best-time">' + esc(rec.timeText) + '</span>' +
+              '<span class="best-meta">' + esc(rec.date) + '</span>';
+            td.title = (rec.meetName || '') + ' / ' + (rec.lane || '') + ' / ' + rec.date;
+          } else {
+            td.className = 'empty';
+            td.textContent = '—';
+          }
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    scroll.appendChild(table);
+    block.appendChild(scroll);
+    container.appendChild(block);
+  });
+}
+
+// =====================================================
 // ④ 種目マスタ
 // =====================================================
 function renderEventMaster() {
@@ -900,6 +1003,11 @@ function bindEvents() {
 
   // 試合記録
   $('saveMeetBtn').onclick = saveMeet;
+
+  // ベスト表
+  document.querySelectorAll('#bestLaneTabs .format-tab').forEach(function (tab) {
+    tab.onclick = function () { switchBestLane(tab.dataset.lane); };
+  });
 
   // マスタ
   $('addEventBtn').onclick = addEvent;

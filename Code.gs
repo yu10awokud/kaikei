@@ -587,6 +587,45 @@ function deleteMeetRecord(id) {
   return { ok: true };
 }
 
+/**
+ * 試合記録から自己ベストを集計して返す。
+ * 種別(正式/引継ぎ) × 種目 × 距離 ごとに最速タイムを1件だけ抽出する。
+ * laneType : '長水路' | '短水路' | '両方'（水路タイプで絞り込み）
+ * 戻り値: { "種別|種目|距離": { seconds, timeText, date, meetName, lane }, ... }
+ */
+function getBestTimes(laneType) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const values = ss.getSheetByName(SHEET_MEET).getDataRange().getValues();
+  const best = {};
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    const lane = String(row[3] || '');
+    if (laneType && laneType !== '両方' && lane !== laneType) continue;
+
+    const seconds = Number(row[6]);
+    if (!(seconds > 0)) continue;
+    const event = String(row[4] || '');
+    const distance = Number(row[5]) || 0;
+    const kind = String(row[7] || DEFAULT_MEET_KIND);
+    const key = kind + '|' + event + '|' + distance;
+
+    const cur = best[key];
+    if (!cur || seconds < cur.seconds) {
+      best[key] = {
+        seconds: seconds,
+        timeText: formatSeconds_(seconds),
+        date: fmtDate_(row[2], tz),
+        meetName: String(row[1] || ''),
+        lane: lane
+      };
+    }
+  }
+  return best;
+}
+
 // ===== 初期表示用のまとめ取得 =====
 /** 入力画面の初期化に必要なマスタをまとめて返す（往復を減らす） */
 function getMasters() {
