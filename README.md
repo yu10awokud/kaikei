@@ -120,7 +120,10 @@ GASのコードは「スプレッドシートに紐づいたスクリプトエ�
 | `addEvent` / `archiveEvent` | 種目マスタの追加・アーカイブ |
 | `addPool` / `archivePool` | プールマスタの追加・アーカイブ |
 | `savePractice(payload)` | 練習ログ＋タイム記録の新規保存・更新（タイムを秒数へ変換） |
-| `getHistory(eventFilter)` | 履歴一覧の取得（種目フィルタ対応） |
+| `getCalendarMonth(year, month)` | カレンダー用に当月の練習日サマリと今月の総距離を取得 |
+| `getDayLogs(date)` | 指定日の練習ログ一覧（タイム・ラップ含む）を取得 |
+| `getRaceCounters` / `addRaceCounter` / `deleteRaceCounter` | 大会カウントダウンの取得・追加・削除 |
+| `getHistory(eventFilter)` | 履歴の取得（互換用に残置） |
 | `deletePractice` / `deleteTimeRecord` | 練習ごと削除・タイム単体削除 |
 | `getAnalysisData(event, distance, lane, period)` | 分析グラフ用に練習(TT)と試合のタイム点列を取得 |
 | `getEventDistances(event)` | 分析の距離プルダウン用に、その種目で記録のある距離一覧を取得 |
