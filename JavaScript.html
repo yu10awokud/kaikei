@@ -84,15 +84,33 @@ function call(fn, args) {
 function parseTimeToSeconds(input) {
   var s = String(input == null ? '' : input).trim();
   if (s === '') throw new Error('タイムを入力してください');
-  if (/^\d+(\.\d+)?$/.test(s)) {
-    var v = Number(s);
-    if (v < 0) throw new Error('タイムは0以上で入力してください');
-    return Math.round(v * 100) / 100;
+  var fmtErr = 'タイムの形式が不正です（例: 1.23.45 または 30.20）';
+
+  // コロン形式（PC入力互換）
+  var c = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
+  if (c) {
+    var t = parseInt(c[1], 10) * 60 + parseInt(c[2], 10) + (c[3] ? parseFloat(c[3]) : 0);
+    return Math.round(t * 100) / 100;
   }
-  var m = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
-  if (!m) throw new Error('タイムの形式が不正です（例: 1:19.50 または 30.20）');
-  var total = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseFloat(m[3]) : 0);
-  return Math.round(total * 100) / 100;
+
+  // ドット形式
+  var parts = s.split('.');
+  if (parts.length === 1) {
+    if (!/^\d+$/.test(parts[0])) throw new Error(fmtErr);
+    return Number(parts[0]);
+  }
+  if (parts.length === 2) {
+    if (!/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) throw new Error(fmtErr);
+    return Math.round(Number(parts[0] + '.' + parts[1]) * 100) / 100;
+  }
+  if (parts.length === 3) {
+    if (!/^\d+$/.test(parts[0]) || !/^[0-5]?\d$/.test(parts[1]) || !/^\d{1,2}$/.test(parts[2])) {
+      throw new Error(fmtErr);
+    }
+    var total = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10) + parseFloat('0.' + parts[2]);
+    return Math.round(total * 100) / 100;
+  }
+  throw new Error(fmtErr);
 }
 function formatSeconds(sec) {
   var v = Number(sec) || 0;
@@ -100,7 +118,7 @@ function formatSeconds(sec) {
     var mm = Math.floor(v / 60);
     var ss = (v - mm * 60).toFixed(2);
     if (ss.length < 5) ss = '0' + ss;
-    return mm + ':' + ss;
+    return mm + '.' + ss;
   }
   return v.toFixed(2);
 }
@@ -225,7 +243,7 @@ function buildTimeGrid() {
       var input = el('input', 'input');
       input.type = 'text';
       input.setAttribute('inputmode', 'decimal');
-      input.placeholder = '1:19.50';
+      input.placeholder = '1.23.45';
       input.dataset.set = s;
       input.dataset.rep = r;
       cell.appendChild(input);
@@ -617,31 +635,36 @@ function renderTimeChart(data) {
   }
   hideAnalysisEmpty();
 
-  // 全ての点を日付昇順に並べ、同じラベル配列を両系列で共有（他方はnull）
-  var combined = [];
-  practice.forEach(function (p) { combined.push({ date: p.date, seconds: p.seconds, kind: 'practice', ref: p }); });
-  meet.forEach(function (m) { combined.push({ date: m.date, seconds: m.seconds, kind: 'meet', ref: m }); });
-  combined.sort(function (a, b) { return a.date.localeCompare(b.date); });
+  // 日付をユニークな昇順リストにし、その並び順(index)をX座標に使う。
+  // これにより同じ日の記録は同じX座標（同じ縦線上）に重なる。
+  var dateSet = {};
+  practice.forEach(function (p) { dateSet[p.date] = true; });
+  meet.forEach(function (m) { dateSet[m.date] = true; });
+  var dates = Object.keys(dateSet).sort();
+  var idx = {};
+  dates.forEach(function (d, i) { idx[d] = i; });
 
-  var labels = combined.map(function (c) { return c.date; });
-  var practiceData = combined.map(function (c) { return c.kind === 'practice' ? c.seconds : null; });
-  var meetData = combined.map(function (c) { return c.kind === 'meet' ? c.seconds : null; });
+  var practicePoints = practice.map(function (p) {
+    return { x: idx[p.date], y: p.seconds, _ref: p, _kind: 'practice' };
+  });
+  var meetPoints = meet.map(function (m) {
+    return { x: idx[m.date], y: m.seconds, _ref: m, _kind: 'meet' };
+  });
 
   destroyChart();
   var ctx = $('analysisChart').getContext('2d');
   state.chart = new Chart(ctx, {
     type: 'line',
     data: {
-      labels: labels,
       datasets: [
         {
-          label: '練習(TT)', data: practiceData,
+          label: '練習(TT)', data: practicePoints,
           borderColor: '#1789c9', backgroundColor: 'rgba(23,137,201,.12)',
           borderWidth: 2.5, pointRadius: 5, pointHoverRadius: 7,
-          pointBackgroundColor: '#0f5c8c', tension: 0.2, spanGaps: true, fill: false
+          pointBackgroundColor: '#0f5c8c', tension: 0.2, showLine: true, fill: false
         },
         {
-          label: '試合', data: meetData,
+          label: '試合', data: meetPoints,
           borderColor: '#e74c3c', backgroundColor: '#e74c3c', showLine: false,
           pointRadius: 6, pointHoverRadius: 8, pointBackgroundColor: '#e74c3c'
         }
@@ -655,17 +678,24 @@ function renderTimeChart(data) {
           title: { display: true, text: 'タイム(秒)　上ほど速い' },
           ticks: { callback: function (v) { return formatSeconds(v); } }
         },
-        x: { ticks: { maxRotation: 60, minRotation: 0, autoSkip: true, maxTicksLimit: 8 } }
+        x: {
+          type: 'linear',
+          min: -0.5, max: dates.length - 0.5,
+          ticks: {
+            stepSize: 1, autoSkip: true, maxTicksLimit: 8, maxRotation: 60, minRotation: 0,
+            callback: function (v) { return (v === Math.round(v)) ? (dates[v] || '') : ''; }
+          }
+        }
       },
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: function (items) { return combined[items[0].dataIndex].date; },
+            title: function (items) { var r = items[0].raw; return (r && r._ref) ? r._ref.date : ''; },
             label: function (item) {
-              var c = combined[item.dataIndex];
-              var p = c.ref;
-              if (c.kind === 'meet') {
+              var c = item.raw;
+              var p = c._ref;
+              if (c._kind === 'meet') {
                 return ['🏅 ' + (p.meetName || '試合') + '（' + (p.kind || '正式') + '）',
                         '距離: ' + p.distance + 'm',
                         'タイム: ' + p.timeText, '水路: ' + (p.lane || '-')];

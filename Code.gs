@@ -126,49 +126,62 @@ function setupSheets_() {
 // ===== タイム変換ヘルパー =====
 
 /**
- * 分秒形式の文字列を秒数(number)に変換する。
- *   "1:19.50" -> 79.5
- *   "1:05"    -> 65
- *   "30.20"   -> 30.2
+ * タイム文字列を秒数(number)に変換する。
+ * スマホのテンキーで入力しやすいドット区切りを主形式とする。
+ *   "1.23.45" -> 83.45   （分.秒.小数）
+ *   "30.20"   -> 30.2    （秒.小数、1分未満）
  *   "45"      -> 45
+ *   "1:19.50" -> 79.5    （コロン形式もPC入力互換で受け付ける）
  * 不正な入力は例外を投げる。
  */
 function parseTimeToSeconds_(input) {
   if (input === null || input === undefined) throw new Error('タイムが未入力です');
   const s = String(input).trim();
   if (s === '') throw new Error('タイムが未入力です');
+  const fmtErr = 'タイムの形式が不正です（例: 1.23.45 または 30.20）';
 
-  // 数値としてそのまま渡ってきた場合（既に秒数）
-  if (/^\d+(\.\d+)?$/.test(s)) {
-    const v = Number(s);
-    if (v < 0) throw new Error('タイムは0以上で入力してください');
-    return Math.round(v * 100) / 100;
+  // コロン形式（PC入力互換）: M:SS(.hh)
+  const c = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
+  if (c) {
+    const total = parseInt(c[1], 10) * 60 + parseInt(c[2], 10) + (c[3] ? parseFloat(c[3]) : 0);
+    return Math.round(total * 100) / 100;
   }
 
-  // 分:秒(.ミリ秒) 形式
-  const m = s.match(/^(\d+):([0-5]?\d)(\.\d+)?$/);
-  if (!m) {
-    throw new Error('タイムの形式が不正です（例: 1:19.50 または 30.20）');
+  // ドット形式
+  const parts = s.split('.');
+  if (parts.length === 1) {
+    if (!/^\d+$/.test(parts[0])) throw new Error(fmtErr);
+    return Number(parts[0]);
   }
-  const minutes = parseInt(m[1], 10);
-  const seconds = parseInt(m[2], 10);
-  const frac = m[3] ? parseFloat(m[3]) : 0;
-  const total = minutes * 60 + seconds + frac;
-  return Math.round(total * 100) / 100;
+  if (parts.length === 2) {
+    // 秒.小数（1分未満）  例: 30.20
+    if (!/^\d+$/.test(parts[0]) || !/^\d+$/.test(parts[1])) throw new Error(fmtErr);
+    return Math.round(Number(parts[0] + '.' + parts[1]) * 100) / 100;
+  }
+  if (parts.length === 3) {
+    // 分.秒.小数  例: 1.23.45
+    if (!/^\d+$/.test(parts[0]) || !/^[0-5]?\d$/.test(parts[1]) || !/^\d{1,2}$/.test(parts[2])) {
+      throw new Error(fmtErr);
+    }
+    const total = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10) + parseFloat('0.' + parts[2]);
+    return Math.round(total * 100) / 100;
+  }
+  throw new Error(fmtErr);
 }
 
 /**
- * 秒数を "m:ss.SS" 形式に整形する（1分以上なら分表記、未満なら秒のみ）。
- *   79.5 -> "1:19.50"
- *   30.2 -> "30.20"
+ * 秒数を "M.SS.hh" 形式に整形する（1分以上なら分表記、未満なら秒のみ）。
+ *   83.45 -> "1.23.45"
+ *   30.2  -> "30.20"
  */
 function formatSeconds_(sec) {
   const v = Number(sec) || 0;
   if (v >= 60) {
     const m = Math.floor(v / 60);
     const s = v - m * 60;
-    const sStr = s.toFixed(2).padStart(5, '0'); // "09.50"
-    return m + ':' + sStr;
+    let sStr = s.toFixed(2);
+    if (sStr.length < 5) sStr = '0' + sStr; // "9.50" -> "09.50"
+    return m + '.' + sStr;
   }
   return v.toFixed(2);
 }
