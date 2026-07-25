@@ -15,7 +15,7 @@
 
     <nav id="drawer" class="drawer">
       <button class="nav-item active" data-screen="input">📝 記録入力</button>
-      <button class="nav-item" data-screen="history">📅 履歴一覧</button>
+      <button class="nav-item" data-screen="history">📅 カレンダー</button>
       <button class="nav-item" data-screen="analysis">📈 分析</button>
       <button class="nav-item" data-screen="meets">🏅 試合記録</button>
       <button class="nav-item" data-screen="best">🏆 ベスト</button>
@@ -62,16 +62,10 @@
 
           <!-- TT: 1本ずつ入力 -->
           <div id="ttFields">
-            <div class="row2">
-              <div>
-                <label class="field-label">距離 (m)</label>
-                <input type="number" id="inTimeDistance" class="input" inputmode="numeric" placeholder="50">
-              </div>
-              <div>
-                <label class="field-label">タイム</label>
-                <input type="text" id="inTime" class="input" inputmode="decimal" placeholder="1.23.45 / 30.20">
-              </div>
-            </div>
+            <label class="field-label">距離 (m)</label>
+            <input type="number" id="inTimeDistance" class="input" inputmode="numeric" placeholder="50">
+            <label class="field-label">タイム<span id="ttLapHint" class="lap-hint"></span></label>
+            <div id="ttEntry"></div>
             <button id="addTimeBtn" class="btn secondary block">＋ この記録を追加</button>
           </div>
 
@@ -103,20 +97,27 @@
         <button id="savePracticeBtn" class="btn primary block big">保存する</button>
       </section>
 
-      <!-- ===== ②履歴一覧 ===== -->
+      <!-- ===== ②カレンダー ===== -->
       <section id="history" class="screen">
-        <div class="filter-bar row2">
-          <div>
-            <label class="field-label">種目で絞り込み</label>
-            <select id="historyFilter" class="input"></select>
-          </div>
-          <div>
-            <label class="field-label">日付で絞り込み</label>
-            <input type="date" id="historyDate" class="input">
-          </div>
+        <!-- 上部ウィジェット：今月の総距離・大会カウントダウン -->
+        <div class="cal-widgets" id="calWidgets"></div>
+
+        <!-- 月ナビ -->
+        <div class="cal-nav">
+          <button id="calPrev" class="cal-nav-btn" aria-label="前の月">‹</button>
+          <span id="calMonthLabel" class="cal-month-label">----年--月</span>
+          <button id="calNext" class="cal-nav-btn" aria-label="次の月">›</button>
         </div>
-        <button id="historyClearDate" class="btn secondary block hidden" style="margin-bottom:12px;">日付の絞り込みを解除</button>
-        <div id="historyList" class="history-list"></div>
+
+        <!-- カレンダー本体 -->
+        <div class="cal-weekdays">
+          <span class="sun">日</span><span>月</span><span>火</span><span>水</span>
+          <span>木</span><span>金</span><span class="sat">土</span>
+        </div>
+        <div id="calGrid" class="cal-grid"></div>
+
+        <!-- 選択日の記録一覧 -->
+        <div id="dayDetail" class="day-detail"></div>
       </section>
 
       <!-- ===== ③分析 ===== -->
@@ -271,23 +272,50 @@
       <div class="edit-add">
         <div class="row2">
           <select id="editEvent" class="input"></select>
-          <input type="number" id="editTimeDistance" class="input" placeholder="距離m">
+          <input type="number" id="editTimeDistance" class="input" inputmode="numeric" placeholder="距離m">
         </div>
         <div class="row2">
-          <input type="text" id="editTime" class="input" placeholder="1.23.45">
           <select id="editPool" class="input"></select>
+          <select id="editFormat" class="input">
+            <option value="TT">TT（分析に反映）</option>
+            <option value="Short">Short</option>
+            <option value="Middle">Middle</option>
+          </select>
         </div>
-        <select id="editFormat" class="input">
-          <option value="TT">TT（分析に反映）</option>
-          <option value="Short">Short</option>
-          <option value="Middle">Middle</option>
-        </select>
+        <label class="field-label">タイム<span id="editLapHint" class="lap-hint"></span></label>
+        <div id="editEntry"></div>
         <button id="editAddTimeBtn" class="btn secondary block">＋ タイムを追加</button>
       </div>
 
       <div class="modal-footer">
         <button id="editCancelBtn" class="btn">キャンセル</button>
         <button id="editSaveBtn" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 記録詳細モーダル（ラップ表示） ===== -->
+  <div id="recDetailOverlay" class="modal-overlay">
+    <div class="modal">
+      <h3 id="rdTitle">記録詳細</h3>
+      <div id="rdBody"></div>
+      <div class="modal-footer">
+        <button id="rdCloseBtn" class="btn primary">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== 大会カウントダウン追加モーダル ===== -->
+  <div id="raceOverlay" class="modal-overlay">
+    <div class="modal">
+      <h3>大会カウントダウンを追加</h3>
+      <label class="field-label">大会名</label>
+      <input type="text" id="raceName" class="input" placeholder="例: 全国大会">
+      <label class="field-label">開催日</label>
+      <input type="date" id="raceDate" class="input">
+      <div class="modal-footer">
+        <button id="raceCancelBtn" class="btn">キャンセル</button>
+        <button id="raceSaveBtn" class="btn primary">追加</button>
       </div>
     </div>
   </div>

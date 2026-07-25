@@ -17,6 +17,7 @@ const SHEET_TIME     = 'TimeRecord';    // タイム記録
 const SHEET_EVENT    = 'EventMaster';   // 種目マスタ
 const SHEET_POOL     = 'PoolMaster';    // プールマスタ
 const SHEET_MEET     = 'MeetRecord';    // 試合記録
+const SHEET_RACE     = 'RaceCounter';   // 大会カウントダウン
 
 const STATUS_ACTIVE   = '有効';
 const STATUS_ARCHIVED = 'アーカイブ';
@@ -66,13 +67,18 @@ function setupSheets_() {
   let time = ss.getSheetByName(SHEET_TIME);
   if (!time) {
     time = ss.insertSheet(SHEET_TIME);
-    time.getRange(1, 1, 1, 8)
-      .setValues([['ID', '練習ログID', '日付', '種目', '距離', 'タイム(秒)', 'プール', '形式']])
+    time.getRange(1, 1, 1, 9)
+      .setValues([['ID', '練習ログID', '日付', '種目', '距離', 'タイム(秒)', 'プール', '形式', 'ラップ']])
       .setFontWeight('bold');
     time.setFrozenRows(1);
-  } else if (String(time.getRange(1, 8).getValue()) !== '形式') {
-    // 既存シートに「形式」列が無ければ追加（旧データは TT 扱い）
-    time.getRange(1, 8).setValue('形式').setFontWeight('bold');
+  } else {
+    // 既存シートに列が無ければ追加（旧データは TT 扱い・ラップ無し）
+    if (String(time.getRange(1, 8).getValue()) !== '形式') {
+      time.getRange(1, 8).setValue('形式').setFontWeight('bold');
+    }
+    if (String(time.getRange(1, 9).getValue()) !== 'ラップ') {
+      time.getRange(1, 9).setValue('ラップ').setFontWeight('bold');
+    }
   }
 
   // 種目マスタ
@@ -114,6 +120,16 @@ function setupSheets_() {
   } else if (String(meet.getRange(1, 8).getValue()) !== '種別') {
     // 既存シートに「種別」列が無ければ追加（旧データは正式扱い）
     meet.getRange(1, 8).setValue('種別').setFontWeight('bold');
+  }
+
+  // 大会カウントダウン
+  let race = ss.getSheetByName(SHEET_RACE);
+  if (!race) {
+    race = ss.insertSheet(SHEET_RACE);
+    race.getRange(1, 1, 1, 3)
+      .setValues([['ID', '大会名', '日付']])
+      .setFontWeight('bold');
+    race.setFrozenRows(1);
   }
 
   // デフォルトの空シートが残っていれば削除
@@ -293,12 +309,29 @@ function savePractice(payload) {
   const times = (payload.times || []).map(function (t) {
     let format = String(t.format || DEFAULT_FORMAT);
     if (TIME_FORMATS.indexOf(format) < 0) format = DEFAULT_FORMAT;
+
+    // ラップ（各50mの経過タイム文字列の配列）が来ていれば秒数化して検証する
+    let laps = null;
+    let seconds;
+    if (t.laps && t.laps.length) {
+      const lapSecs = t.laps.map(function (x) { return parseTimeToSeconds_(x); });
+      for (let k = 1; k < lapSecs.length; k++) {
+        if (lapSecs[k] < lapSecs[k - 1]) {
+          throw new Error('経過タイムは前の区間より大きくなる必要があります');
+        }
+      }
+      laps = lapSecs;
+      seconds = lapSecs[lapSecs.length - 1];
+    } else {
+      seconds = parseTimeToSeconds_(t.time);
+    }
     return {
       event: String(t.event || '').trim(),
       distance: Number(t.distance) || 0,
-      seconds: parseTimeToSeconds_(t.time),
+      seconds: seconds,
       pool: String(t.pool || '').trim(),
-      format: format
+      format: format,
+      laps: laps
     };
   });
 
@@ -327,54 +360,133 @@ function savePractice(payload) {
   // タイム記録を追加
   if (times.length) {
     const rows = times.map(function (t) {
-      return [Utilities.getUuid(), logId, payload.date, t.event, t.distance, t.seconds, t.pool, t.format];
+      return [Utilities.getUuid(), logId, payload.date, t.event, t.distance, t.seconds, t.pool,
+              t.format, t.laps ? JSON.stringify(t.laps) : ''];
     });
-    timeSheet.getRange(timeSheet.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+    timeSheet.getRange(timeSheet.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
   }
 
   return { ok: true, id: logId };
 }
 
-// ===== 練習記録：履歴取得 =====
+// ===== 練習記録：履歴・カレンダー取得 =====
+
+/** タイム記録の1行をフロント用オブジェクトに変換（ラップ・区間も展開） */
+function buildTimeRecord_(row, tz) {
+  const seconds = Number(row[5]);
+  let cumLaps = [];
+  if (row[8]) {
+    try { cumLaps = JSON.parse(row[8]) || []; } catch (e) { cumLaps = []; }
+  }
+  const laps = [];
+  let prev = 0;
+  cumLaps.forEach(function (c, i) {
+    const split = Math.round((c - prev) * 100) / 100;
+    prev = c;
+    laps.push({
+      dist: (i + 1) * 50,
+      cum: c,
+      cumText: formatSeconds_(c),
+      split: split,
+      splitText: formatSeconds_(split)
+    });
+  });
+  return {
+    id: String(row[0]),
+    logId: String(row[1]),
+    date: fmtDate_(row[2], tz),
+    event: String(row[3]),
+    distance: Number(row[4]),
+    seconds: seconds,
+    timeText: formatSeconds_(seconds),
+    pool: String(row[6] || ''),
+    format: String(row[7] || DEFAULT_FORMAT),
+    laps: laps
+  };
+}
+
+/** logId -> タイム記録配列 のマップを作る */
+function timesByLog_(tz) {
+  const timeValues = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_TIME).getDataRange().getValues();
+  const map = {};
+  for (let i = 1; i < timeValues.length; i++) {
+    const row = timeValues[i];
+    if (!row[0]) continue;
+    const logId = String(row[1]);
+    if (!map[logId]) map[logId] = [];
+    map[logId].push(buildTimeRecord_(row, tz));
+  }
+  return map;
+}
+
+/**
+ * カレンダー表示用に、指定年月の練習日サマリと今月の総距離を返す。
+ *   { year, month, monthDistance, days: { 'yyyy-MM-dd': {distance, count} } }
+ */
+function getCalendarMonth(year, month) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const values = ss.getSheetByName(SHEET_PRACTICE).getDataRange().getValues();
+  const days = {};
+  let monthDistance = 0;
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    const d = new Date(row[1]);
+    if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) continue;
+    const dateStr = fmtDate_(row[1], tz);
+    if (!days[dateStr]) days[dateStr] = { distance: 0, count: 0 };
+    const dist = Number(row[2]) || 0;
+    days[dateStr].distance += dist;
+    days[dateStr].count += 1;
+    monthDistance += dist;
+  }
+  return { year: year, month: month, monthDistance: monthDistance, days: days };
+}
+
+/** 指定日の練習ログ一覧（各ログにタイム記録・ラップをぶら下げる）を返す */
+function getDayLogs(dateStr) {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const byLog = timesByLog_(tz);
+
+  const logValues = ss.getSheetByName(SHEET_PRACTICE).getDataRange().getValues();
+  const logs = [];
+  for (let i = 1; i < logValues.length; i++) {
+    const row = logValues[i];
+    if (!row[0]) continue;
+    if (fmtDate_(row[1], tz) !== dateStr) continue;
+    const logId = String(row[0]);
+    logs.push({
+      id: logId,
+      date: fmtDate_(row[1], tz),
+      distance: Number(row[2]) || 0,
+      memo: String(row[3] || ''),
+      times: byLog[logId] || []
+    });
+  }
+  return logs;
+}
 
 /**
  * 練習ログを日付の新しい順で返す（各ログにタイム記録をぶら下げる）。
- * eventFilter を渡すと、その種目を含む練習日のみに絞り込む。
+ * eventFilter を渡すと、その種目を含む練習日のみに絞り込む。（互換用に残置）
  */
 function getHistory(eventFilter) {
   setupSheets_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tz = Session.getScriptTimeZone();
+  const byLog = timesByLog_(tz);
 
-  // タイム記録を logId 単位でまとめる
-  const timeValues = ss.getSheetByName(SHEET_TIME).getDataRange().getValues();
-  const timesByLog = {};
-  for (let i = 1; i < timeValues.length; i++) {
-    const row = timeValues[i];
-    if (!row[0]) continue;
-    const logId = String(row[1]);
-    if (!timesByLog[logId]) timesByLog[logId] = [];
-    timesByLog[logId].push({
-      id: String(row[0]),
-      logId: logId,
-      date: fmtDate_(row[2], tz),
-      event: String(row[3]),
-      distance: Number(row[4]),
-      seconds: Number(row[5]),
-      timeText: formatSeconds_(Number(row[5])),
-      pool: String(row[6] || ''),
-      format: String(row[7] || DEFAULT_FORMAT)
-    });
-  }
-
-  // 練習ログ
   const logValues = ss.getSheetByName(SHEET_PRACTICE).getDataRange().getValues();
   const logs = [];
   for (let i = 1; i < logValues.length; i++) {
     const row = logValues[i];
     if (!row[0]) continue;
     const logId = String(row[0]);
-    const times = timesByLog[logId] || [];
+    const times = byLog[logId] || [];
     if (eventFilter && !times.some(t => t.event === eventFilter)) continue;
     logs.push({
       id: logId,
@@ -384,9 +496,44 @@ function getHistory(eventFilter) {
       times: times
     });
   }
-
   logs.sort((a, b) => b.date.localeCompare(a.date));
   return logs;
+}
+
+// ===== 大会カウントダウン =====
+function getRaceCounters() {
+  setupSheets_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tz = Session.getScriptTimeZone();
+  const values = ss.getSheetByName(SHEET_RACE).getDataRange().getValues();
+  const races = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (!row[0]) continue;
+    races.push({
+      id: String(row[0]),
+      name: String(row[1] || ''),
+      date: fmtDate_(row[2], tz)
+    });
+  }
+  races.sort((a, b) => a.date.localeCompare(b.date));
+  return races;
+}
+
+function addRaceCounter(name, date) {
+  setupSheets_();
+  if (!String(name || '').trim()) throw new Error('大会名を入力してください');
+  if (!date) throw new Error('日付を入力してください');
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RACE);
+  sheet.appendRow([Utilities.getUuid(), String(name).trim(), date]);
+  return getRaceCounters();
+}
+
+function deleteRaceCounter(id) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_RACE);
+  const rowIndex = findRowById_(sheet, id);
+  if (rowIndex > 0) sheet.deleteRow(rowIndex);
+  return getRaceCounters();
 }
 
 // ===== 練習記録：削除 =====

@@ -13,9 +13,15 @@ var state = {
   editLogId: null,
   analysisPeriod: 'all',
   analysisMode: 'time',   // 'time'（タイム推移） | 'distance'（総距離推移）
-  historyLogs: [],        // 履歴タブで読み込んだログ（日付絞り込み用に保持）
   bestLane: '両方',       // ベスト表の水路タイプ絞り込み
-  chart: null
+  chart: null,
+  ttEntry: null,          // TT用タイム入力コンポーネント
+  editEntry: null,        // 編集モーダル用タイム入力コンポーネント
+  gridEntries: [],        // Short/Middleの一括入力欄
+  calYear: null, calMonth: null,   // カレンダー表示中の年月
+  calSelectedDate: null,  // 選択中の日付
+  calData: null,          // 当月のカレンダーデータ
+  races: []               // 大会カウントダウン
 };
 
 // ベスト表の構成（種別ごとに 種目・距離 の対応を定義）
@@ -143,7 +149,7 @@ function switchScreen(name) {
   onScreenEnter(name);
 }
 function onScreenEnter(name) {
-  if (name === 'history') loadHistory();
+  if (name === 'history') loadCalendar();
   else if (name === 'analysis') enterAnalysis();
   else if (name === 'meets') loadMeets();
   else if (name === 'best') loadBest();
@@ -178,7 +184,6 @@ function fillPoolSelect(sel) {
 function refreshAllSelects() {
   fillEventSelect($('inEvent'), false);
   fillPoolSelect($('inPool'));
-  fillEventSelect($('historyFilter'), true);
   fillEventSelect($('anEvent'), false);
   fillEventSelect($('editEvent'), false);
   fillPoolSelect($('editPool'));
@@ -201,7 +206,92 @@ function switchFormat(fmt) {
   $('formatHint').textContent = isTT
     ? 'TT（タイムトライアル）のみ分析グラフに反映されます'
     : fmt + 'は本数・セットをまとめて記録できます（分析グラフには反映されません）';
-  if (!isTT) updateSetSummary();
+  if (isTT) buildTtEntry();
+  else updateSetSummary();
+}
+
+// ---- ラップ対応のタイム入力コンポーネント ----
+// distance が 200以上かつ50の倍数なら 50mごとの経過タイム欄を、そうでなければ単一タイム欄を作る。
+function lapCount(distance) {
+  var d = Number(distance) || 0;
+  return (d >= 200 && d % 50 === 0) ? d / 50 : 0;
+}
+function createTimeEntry(container, distance) {
+  container.innerHTML = '';
+  var n = lapCount(distance);
+  if (n === 0) {
+    var inp = el('input', 'input');
+    inp.type = 'text'; inp.setAttribute('inputmode', 'decimal');
+    inp.placeholder = '1.23.45 / 30.20';
+    container.appendChild(inp);
+    return {
+      isEmpty: function () { return inp.value.trim() === ''; },
+      read: function () {
+        var v = inp.value.trim();
+        parseTimeToSeconds(v); // 検証（不正なら例外）
+        return { time: v, laps: null };
+      },
+      clear: function () { inp.value = ''; }
+    };
+  }
+  // ラップ欄（経過タイムを入力 → 区間ラップを自動表示）
+  var grid = el('div', 'lap-grid');
+  var inputs = [];
+  for (var i = 1; i <= n; i++) {
+    var cell = el('div', 'lap-cell');
+    cell.appendChild(el('span', 'lap-num', (i * 50) + 'm'));
+    var inp2 = el('input', 'input');
+    inp2.type = 'text'; inp2.setAttribute('inputmode', 'decimal');
+    inp2.placeholder = '経過';
+    cell.appendChild(inp2);
+    grid.appendChild(cell);
+    inputs.push(inp2);
+  }
+  var splitView = el('div', 'split-view');
+  function recompute() {
+    var parts = []; var prev = 0; var ok = true;
+    for (var i = 0; i < inputs.length; i++) {
+      var raw = inputs[i].value.trim();
+      if (raw === '') break;
+      var sec;
+      try { sec = parseTimeToSeconds(raw); } catch (e) { ok = false; break; }
+      var sp = Math.round((sec - prev) * 100) / 100;
+      prev = sec;
+      parts.push((i * 50 + 50) + 'm: ' + formatSeconds(sp < 0 ? 0 : sp));
+    }
+    if (parts.length && ok) {
+      splitView.textContent = '区間ラップ → ' + parts.join(' / ');
+      splitView.classList.add('show');
+    } else {
+      splitView.classList.remove('show');
+    }
+  }
+  inputs.forEach(function (x) { x.addEventListener('input', recompute); });
+  container.appendChild(grid);
+  container.appendChild(splitView);
+  return {
+    isEmpty: function () { return inputs.every(function (x) { return x.value.trim() === ''; }); },
+    read: function () {
+      var laps = inputs.map(function (x) { return x.value.trim(); });
+      if (laps.some(function (v) { return v === ''; })) {
+        throw new Error('全ての経過タイムを入力してください');
+      }
+      var secs = laps.map(parseTimeToSeconds);
+      for (var i = 1; i < secs.length; i++) {
+        if (secs[i] < secs[i - 1]) throw new Error('経過タイムは前の区間より大きくしてください');
+      }
+      return { time: laps[laps.length - 1], laps: laps };
+    },
+    clear: function () { inputs.forEach(function (x) { x.value = ''; }); recompute(); }
+  };
+}
+
+// TT用のタイム入力欄を（距離に応じて）作り直す
+function buildTtEntry() {
+  var dist = Number($('inTimeDistance').value) || 0;
+  state.ttEntry = createTimeEntry($('ttEntry'), dist);
+  var n = lapCount(dist);
+  $('ttLapHint').textContent = n ? '（' + n + '本の経過タイムを入力）' : '';
 }
 
 // ---- Short / Middle：距離×本数×セットの一括入力 ----
@@ -231,22 +321,21 @@ function buildTimeGrid() {
   if (!(d.sets > 0)) { toast('セット数を入力してください', true); return; }
   if (d.reps * d.sets > 100) { toast('本数×セットが多すぎます（100本以内）', true); return; }
 
+  var isLap = lapCount(d.distance) > 0;
   var grid = $('timeGrid');
   grid.innerHTML = '';
+  state.gridEntries = [];
   for (var s = 1; s <= d.sets; s++) {
     var setBox = el('div', 'grid-set');
     if (d.sets > 1) setBox.appendChild(el('div', 'grid-set-title', s + 'セット目'));
-    var rows = el('div', 'grid-rows');
+    var rows = el('div', isLap ? 'grid-rows-col' : 'grid-rows');
     for (var r = 1; r <= d.reps; r++) {
-      var cell = el('div', 'grid-cell');
+      var cell = el('div', isLap ? 'grid-rep' : 'grid-cell');
       cell.appendChild(el('span', 'rep-label', r + '本目'));
-      var input = el('input', 'input');
-      input.type = 'text';
-      input.setAttribute('inputmode', 'decimal');
-      input.placeholder = '1.23.45';
-      input.dataset.set = s;
-      input.dataset.rep = r;
-      cell.appendChild(input);
+      var cont = el('div');
+      var entry = createTimeEntry(cont, d.distance);
+      cell.appendChild(cont);
+      state.gridEntries.push({ set: s, rep: r, entry: entry });
       rows.appendChild(cell);
     }
     setBox.appendChild(rows);
@@ -258,26 +347,25 @@ function addGridToPending() {
   var event = $('inEvent').value;
   var pool = $('inPool').value;
   var d = setDims();
-  var inputs = $('timeGrid').querySelectorAll('input');
   var added = [];
-  for (var i = 0; i < inputs.length; i++) {
-    var raw = inputs[i].value.trim();
-    if (raw === '') continue; // 空欄はスキップ（未計測の本があってもOK）
-    var seconds;
-    try { seconds = parseTimeToSeconds(raw); }
+  for (var i = 0; i < state.gridEntries.length; i++) {
+    var ge = state.gridEntries[i];
+    if (ge.entry.isEmpty()) continue; // 空欄はスキップ（未計測の本があってもOK）
+    var res;
+    try { res = ge.entry.read(); }
     catch (e) {
-      toast(inputs[i].dataset.set + 'セット目' + inputs[i].dataset.rep + '本目: ' + e.message, true);
+      toast((d.sets > 1 ? ge.set + 'セット目' : '') + ge.rep + '本目: ' + e.message, true);
       return;
     }
     added.push({
-      event: event, distance: d.distance, time: raw, seconds: seconds,
-      pool: pool, format: state.inputFormat
+      event: event, distance: d.distance, time: res.time, laps: res.laps,
+      seconds: parseTimeToSeconds(res.time), pool: pool, format: state.inputFormat
     });
   }
   if (!added.length) { toast('タイムを1本以上入力してください', true); return; }
   added.forEach(function (rec) { state.pending.push(rec); });
-  // グリッドをリセット
   $('timeGrid').innerHTML = '';
+  state.gridEntries = [];
   $('addGridBtn').classList.add('hidden');
   renderPending();
   toast(added.length + '本を追加しました');
@@ -286,22 +374,20 @@ function addGridToPending() {
 function addPendingTime() {
   var event = $('inEvent').value;
   var distance = $('inTimeDistance').value;
-  var timeRaw = $('inTime').value;
   var pool = $('inPool').value;
 
   if (!event) { toast('種目を登録・選択してください', true); return; }
   if (!distance) { toast('距離を入力してください', true); return; }
   if (!pool) { toast('プールを登録・選択してください', true); return; }
-  var seconds;
-  try { seconds = parseTimeToSeconds(timeRaw); }
+  var res;
+  try { res = state.ttEntry.read(); }
   catch (e) { toast(e.message, true); return; }
 
   state.pending.push({
-    event: event, distance: Number(distance), time: timeRaw.trim(),
-    seconds: seconds, pool: pool, format: 'TT'
+    event: event, distance: Number(distance), time: res.time, laps: res.laps,
+    seconds: parseTimeToSeconds(res.time), pool: pool, format: 'TT'
   });
-  $('inTimeDistance').value = '';
-  $('inTime').value = '';
+  state.ttEntry.clear();
   renderPending();
 }
 
@@ -309,6 +395,7 @@ function pendingItemHtml(t) {
   return '<span class="ev">' + esc(t.event) + '</span> ' +
     esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
     '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' +
+    (t.laps && t.laps.length ? '<span class="rec-lap-flag">ラップ</span>' : '') +
     '<div class="sub">' + esc(t.pool) + '</div>';
 }
 
@@ -338,7 +425,7 @@ function savePractice() {
     distance: distance ? Number(distance) : 0,
     memo: $('inMemo').value,
     times: state.pending.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool, format: t.format };
+      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, pool: t.pool, format: t.format };
     })
   };
   showLoading(true);
@@ -351,9 +438,10 @@ function savePractice() {
     $('inDistance').value = '';
     $('inMemo').value = '';
     $('inTimeDistance').value = '';
-    $('inTime').value = '';
     $('timeGrid').innerHTML = '';
+    state.gridEntries = [];
     $('addGridBtn').classList.add('hidden');
+    buildTtEntry();
   }).catch(function (err) {
     showLoading(false);
     toast('保存に失敗: ' + err.message, true);
@@ -361,79 +449,220 @@ function savePractice() {
 }
 
 // =====================================================
-// ② 履歴一覧
+// ② カレンダー（履歴）
 // =====================================================
-function loadHistory() {
-  var filter = $('historyFilter').value || null;
+function loadCalendar() {
+  if (!state.calYear) {
+    var now = new Date();
+    state.calYear = now.getFullYear();
+    state.calMonth = now.getMonth() + 1;
+  }
   showLoading(true);
-  call('getHistory', [filter]).then(function (logs) {
+  Promise.all([
+    call('getCalendarMonth', [state.calYear, state.calMonth]),
+    call('getRaceCounters', [])
+  ]).then(function (res) {
     showLoading(false);
-    state.historyLogs = logs;
-    applyHistoryDateFilter();
+    state.calData = res[0];
+    state.races = res[1];
+    renderWidgets();
+    renderCalendar();
+    if (state.calSelectedDate && state.calSelectedDate.indexOf(monthPrefix()) === 0) {
+      selectDay(state.calSelectedDate);
+    } else {
+      state.calSelectedDate = null;
+      $('dayDetail').innerHTML = '';
+    }
   }).catch(function (err) {
     showLoading(false);
     toast('取得に失敗: ' + err.message, true);
   });
 }
 
-// 日付ピッカーの値で履歴を絞り込んで表示
-function applyHistoryDateFilter() {
-  var date = $('historyDate').value;
-  $('historyClearDate').classList.toggle('hidden', !date);
-  var logs = state.historyLogs;
-  if (date) logs = logs.filter(function (l) { return l.date === date; });
-  renderHistory(logs);
+function monthPrefix() {
+  return state.calYear + '-' + String(state.calMonth).padStart(2, '0');
+}
+function changeMonth(delta) {
+  var m = state.calMonth + delta, y = state.calYear;
+  if (m < 1) { m = 12; y--; } else if (m > 12) { m = 1; y++; }
+  state.calYear = y; state.calMonth = m;
+  loadCalendar();
+}
+function daysUntil(dateStr) {
+  var t = new Date(); t.setHours(0, 0, 0, 0);
+  var p = dateStr.split('-');
+  var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  return Math.round((d - t) / 86400000);
 }
 
-function renderHistory(logs) {
-  var box = $('historyList');
+function renderWidgets() {
+  var box = $('calWidgets');
   box.innerHTML = '';
+  var wd = el('div', 'widget distance');
+  var dist = state.calData ? state.calData.monthDistance : 0;
+  wd.innerHTML = '<div class="widget-label">今月の総距離</div>' +
+    '<div class="widget-value">' + dist.toLocaleString() + '<small> m</small></div>';
+  box.appendChild(wd);
+
+  (state.races || []).forEach(function (r) {
+    var left = daysUntil(r.date);
+    if (left < 0) return; // 過去は表示しない
+    var w = el('div', 'widget race');
+    var txt = left === 0 ? '本番！' : 'あと ' + left + '<small> 日</small>';
+    w.innerHTML = '<div class="widget-label">' + esc(r.name) + '</div>' +
+      '<div class="widget-value">' + txt + '</div>' +
+      '<div class="widget-sub">' + esc(r.date) + '</div>';
+    var del = el('button', 'wdel', '×');
+    del.onclick = function (e) { e.stopPropagation(); deleteRace(r); };
+    w.appendChild(del);
+    box.appendChild(w);
+  });
+
+  var add = el('div', 'widget add', '＋');
+  add.title = '大会カウントダウンを追加';
+  add.onclick = openRaceModal;
+  box.appendChild(add);
+}
+
+function renderCalendar() {
+  $('calMonthLabel').textContent = state.calYear + '年' + state.calMonth + '月';
+  var grid = $('calGrid');
+  grid.innerHTML = '';
+  var startDow = new Date(state.calYear, state.calMonth - 1, 1).getDay();
+  var daysInMonth = new Date(state.calYear, state.calMonth, 0).getDate();
+  var today = todayStr();
+  var days = (state.calData && state.calData.days) || {};
+
+  for (var i = 0; i < startDow; i++) grid.appendChild(el('div', 'cal-day empty'));
+
+  for (var day = 1; day <= daysInMonth; day++) {
+    var dateStr = monthPrefix() + '-' + String(day).padStart(2, '0');
+    var dow = new Date(state.calYear, state.calMonth - 1, day).getDay();
+    var cls = 'cal-day';
+    if (dow === 0) cls += ' sun';
+    if (dow === 6) cls += ' sat';
+    if (dateStr === today) cls += ' today';
+    var info = days[dateStr];
+    if (info) cls += ' has-practice';
+    if (dateStr === state.calSelectedDate) cls += ' selected';
+    var cell = el('div', cls);
+    cell.appendChild(el('span', 'dnum', String(day)));
+    if (info) {
+      cell.appendChild(el('span', 'dmark'));
+      if (info.distance) cell.appendChild(el('span', 'ddist', info.distance + 'm'));
+    }
+    (function (ds) { cell.onclick = function () { selectDay(ds); }; })(dateStr);
+    grid.appendChild(cell);
+  }
+}
+
+function selectDay(dateStr) {
+  state.calSelectedDate = dateStr;
+  renderCalendar();
+  showLoading(true);
+  call('getDayLogs', [dateStr]).then(function (logs) {
+    showLoading(false);
+    renderDayDetail(dateStr, logs);
+  }).catch(function (err) {
+    showLoading(false);
+    toast('取得に失敗: ' + err.message, true);
+  });
+}
+
+function renderDayDetail(dateStr, logs) {
+  var box = $('dayDetail');
+  box.innerHTML = '';
+  box.appendChild(el('div', 'day-detail-head', dateStr + ' の記録'));
   if (!logs.length) {
-    box.appendChild(el('div', 'empty-hint', '記録がありません'));
+    box.appendChild(el('div', 'empty-hint', 'この日の記録はありません'));
     return;
   }
   logs.forEach(function (log) {
     var card = el('div', 'history-card');
-
     var head = el('div', 'history-head');
-    head.innerHTML = '<span class="history-date">' + esc(log.date) + '</span>' +
-      '<span class="history-dist">総距離 ' + esc(log.distance) + 'm</span>';
+    head.innerHTML = '<span class="history-date">総距離 ' + esc(log.distance) + 'm</span>';
     card.appendChild(head);
+    if (log.memo) card.appendChild(el('div', 'history-memo', log.memo));
 
-    if (log.memo) {
-      card.appendChild(el('div', 'history-memo', log.memo));
-    }
-
-    if (log.times.length) {
-      var table = el('table', 'time-table');
-      table.innerHTML = '<thead><tr><th>種目</th><th>距離</th><th>タイム</th><th>プール</th><th></th></tr></thead>';
-      var tb = el('tbody');
-      log.times.forEach(function (t) {
-        var tr = el('tr');
-        tr.innerHTML = '<td>' + esc(t.event) + '</td><td>' + esc(t.distance) + 'm</td>' +
-          '<td>' + esc(t.timeText) + '</td><td>' + esc(t.pool) + '</td>';
-        var tdDel = el('td');
-        var del = el('button', 'del-tm', '🗑');
-        del.title = 'このタイム記録を削除';
-        del.onclick = function () { deleteTimeRecord(t.id); };
-        tdDel.appendChild(del);
-        tr.appendChild(tdDel);
-        tb.appendChild(tr);
-      });
-      table.appendChild(tb);
-      card.appendChild(table);
-    }
+    log.times.forEach(function (t) {
+      var row = el('div', 'rec-row');
+      var main = el('div');
+      var lapFlag = (t.laps && t.laps.length) ? '<span class="rec-lap-flag">ラップ</span>' : '';
+      main.innerHTML = '<div class="rec-main"><span class="ev">' + esc(t.event) + '</span> ' +
+        esc(t.distance) + 'm <span class="tm">' + esc(t.timeText) + '</span>' +
+        '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' + lapFlag + '</div>' +
+        '<div class="rec-sub">' + esc(t.pool || '-') + '</div>';
+      row.appendChild(main);
+      row.appendChild(el('span', 'chev', '›'));
+      row.onclick = function () { openRecordDetail(t); };
+      card.appendChild(row);
+    });
 
     var actions = el('div', 'history-actions');
     var editBtn = el('button', 'btn secondary', '編集');
     editBtn.onclick = function () { openEdit(log); };
     var delBtn = el('button', 'btn danger', '削除');
     delBtn.onclick = function () { deletePractice(log); };
-    actions.appendChild(editBtn);
-    actions.appendChild(delBtn);
+    actions.appendChild(editBtn); actions.appendChild(delBtn);
     card.appendChild(actions);
-
     box.appendChild(card);
+  });
+}
+
+// ---- 記録詳細（ラップ表示） ----
+function openRecordDetail(t) {
+  $('rdTitle').textContent = t.event + ' ' + t.distance + 'm';
+  var html = '<div class="rd-summary">タイム<span class="big">' + esc(t.timeText) + '</span></div>' +
+    '<div class="rec-sub" style="margin-bottom:10px;">' + esc(t.pool || '-') + '　/　' + esc(t.format) + '</div>';
+  if (t.laps && t.laps.length) {
+    var rows = '';
+    t.laps.forEach(function (l) {
+      rows += '<tr><td>' + l.dist + 'm</td><td>' + esc(l.cumText) + '</td><td>' + esc(l.splitText) + '</td></tr>';
+    });
+    html += '<table class="lap-table"><thead><tr><th>地点</th><th>経過</th><th>区間ラップ</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>';
+  } else {
+    html += '<div class="empty-hint">ラップ記録はありません</div>';
+  }
+  $('rdBody').innerHTML = html;
+  $('recDetailOverlay').classList.add('show');
+}
+function closeRecordDetail() { $('recDetailOverlay').classList.remove('show'); }
+
+// ---- 大会カウントダウン ----
+function openRaceModal() {
+  $('raceName').value = '';
+  $('raceDate').value = '';
+  $('raceOverlay').classList.add('show');
+}
+function closeRaceModal() { $('raceOverlay').classList.remove('show'); }
+function saveRace() {
+  var name = $('raceName').value.trim();
+  var date = $('raceDate').value;
+  if (!name) { toast('大会名を入力してください', true); return; }
+  if (!date) { toast('日付を入力してください', true); return; }
+  showLoading(true);
+  call('addRaceCounter', [name, date]).then(function (races) {
+    showLoading(false);
+    state.races = races;
+    closeRaceModal();
+    renderWidgets();
+    toast('追加しました');
+  }).catch(function (err) {
+    showLoading(false);
+    toast(err.message, true);
+  });
+}
+function deleteRace(r) {
+  if (!confirm('「' + r.name + '」のカウントダウンを削除しますか？')) return;
+  showLoading(true);
+  call('deleteRaceCounter', [r.id]).then(function (races) {
+    showLoading(false);
+    state.races = races;
+    renderWidgets();
+  }).catch(function (err) {
+    showLoading(false);
+    toast('削除に失敗: ' + err.message, true);
   });
 }
 
@@ -443,7 +672,7 @@ function deletePractice(log) {
   call('deletePractice', [log.id]).then(function () {
     showLoading(false);
     toast('削除しました');
-    loadHistory();
+    loadCalendar();
   }).catch(function (err) {
     showLoading(false);
     toast('削除に失敗: ' + err.message, true);
@@ -456,7 +685,7 @@ function deleteTimeRecord(id) {
   call('deleteTimeRecord', [id]).then(function () {
     showLoading(false);
     toast('削除しました');
-    loadHistory();
+    loadCalendar();
   }).catch(function (err) {
     showLoading(false);
     toast('削除に失敗: ' + err.message, true);
@@ -464,14 +693,27 @@ function deleteTimeRecord(id) {
 }
 
 // ---- 編集モーダル ----
+function buildEditEntry() {
+  var dist = Number($('editTimeDistance').value) || 0;
+  state.editEntry = createTimeEntry($('editEntry'), dist);
+  var n = lapCount(dist);
+  $('editLapHint').textContent = n ? '（' + n + '本の経過タイム）' : '';
+}
 function openEdit(log) {
   state.editLogId = log.id;
+  // 既存タイムは laps を「累積タイム文字列の配列」に変換して保持（再保存時にそのまま渡す）
   state.editTimes = log.times.map(function (t) {
-    return { event: t.event, distance: t.distance, time: t.timeText, seconds: t.seconds, pool: t.pool, format: t.format || 'TT' };
+    var lapStrs = (t.laps && t.laps.length) ? t.laps.map(function (l) { return l.cumText; }) : null;
+    return {
+      event: t.event, distance: t.distance, time: t.timeText, laps: lapStrs,
+      seconds: t.seconds, pool: t.pool, format: t.format || 'TT'
+    };
   });
   $('editDate').value = log.date;
   $('editDistance').value = log.distance;
   $('editMemo').value = log.memo;
+  $('editTimeDistance').value = '';
+  buildEditEntry();
   renderEditTimes();
   $('editOverlay').classList.add('show');
 }
@@ -496,18 +738,20 @@ function renderEditTimes() {
 function addEditTime() {
   var event = $('editEvent').value;
   var distance = $('editTimeDistance').value;
-  var timeRaw = $('editTime').value;
   var pool = $('editPool').value;
   var format = $('editFormat').value;
   if (!event) { toast('種目を選択してください', true); return; }
   if (!distance) { toast('距離を入力してください', true); return; }
   if (!pool) { toast('プールを選択してください', true); return; }
-  var seconds;
-  try { seconds = parseTimeToSeconds(timeRaw); }
+  var res;
+  try { res = state.editEntry.read(); }
   catch (e) { toast(e.message, true); return; }
-  state.editTimes.push({ event: event, distance: Number(distance), time: timeRaw.trim(), seconds: seconds, pool: pool, format: format });
+  state.editTimes.push({
+    event: event, distance: Number(distance), time: res.time, laps: res.laps,
+    seconds: parseTimeToSeconds(res.time), pool: pool, format: format
+  });
   $('editTimeDistance').value = '';
-  $('editTime').value = '';
+  buildEditEntry();
   renderEditTimes();
 }
 function saveEdit() {
@@ -519,7 +763,7 @@ function saveEdit() {
     distance: $('editDistance').value ? Number($('editDistance').value) : 0,
     memo: $('editMemo').value,
     times: state.editTimes.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, pool: t.pool, format: t.format || 'TT' };
+      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, pool: t.pool, format: t.format || 'TT' };
     })
   };
   showLoading(true);
@@ -527,7 +771,7 @@ function saveEdit() {
     showLoading(false);
     toast('更新しました');
     closeEdit();
-    loadHistory();
+    loadCalendar();
   }).catch(function (err) {
     showLoading(false);
     toast('更新に失敗: ' + err.message, true);
@@ -1052,17 +1296,27 @@ function bindEvents() {
   ['setDistance', 'setReps', 'setSets'].forEach(function (id) {
     $(id).addEventListener('input', updateSetSummary);
   });
+  $('inTimeDistance').addEventListener('input', buildTtEntry);
   $('savePracticeBtn').onclick = savePractice;
 
-  // 履歴
-  $('historyFilter').onchange = loadHistory;
-  $('historyDate').onchange = applyHistoryDateFilter;
-  $('historyClearDate').onclick = function () { $('historyDate').value = ''; applyHistoryDateFilter(); };
+  // カレンダー
+  $('calPrev').onclick = function () { changeMonth(-1); };
+  $('calNext').onclick = function () { changeMonth(1); };
+
+  // 記録詳細（ラップ）モーダル
+  $('rdCloseBtn').onclick = closeRecordDetail;
+  $('recDetailOverlay').onclick = function (e) { if (e.target === $('recDetailOverlay')) closeRecordDetail(); };
+
+  // 大会カウントダウン モーダル
+  $('raceSaveBtn').onclick = saveRace;
+  $('raceCancelBtn').onclick = closeRaceModal;
+  $('raceOverlay').onclick = function (e) { if (e.target === $('raceOverlay')) closeRaceModal(); };
 
   // 編集モーダル
   $('editAddTimeBtn').onclick = addEditTime;
   $('editCancelBtn').onclick = closeEdit;
   $('editSaveBtn').onclick = saveEdit;
+  $('editTimeDistance').addEventListener('input', buildEditEntry);
   $('editOverlay').onclick = function (e) { if (e.target === $('editOverlay')) closeEdit(); };
 
   // 分析
@@ -1109,6 +1363,7 @@ function init() {
     state.events = m.events || [];
     state.pools = m.pools || [];
     refreshAllSelects();
+    buildTtEntry();
   }).catch(function (err) {
     showLoading(false);
     toast('初期化に失敗: ' + err.message, true);
