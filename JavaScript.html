@@ -16,7 +16,9 @@ var state = {
   bestLane: '両方',       // ベスト表の水路タイプ絞り込み
   chart: null,
   ttEntry: null,          // TT用タイム入力コンポーネント
+  ttLapN: null,           // TT入力欄の現在のラップ本数（作り直し判定用）
   editEntry: null,        // 編集モーダル用タイム入力コンポーネント
+  editLapN: null,         // 編集入力欄の現在のラップ本数
   gridEntries: [],        // Short/Middleの一括入力欄
   calYear: null, calMonth: null,   // カレンダー表示中の年月
   calSelectedDate: null,  // 選択中の日付
@@ -219,45 +221,71 @@ function lapCount(distance) {
 function createTimeEntry(container, distance) {
   container.innerHTML = '';
   var n = lapCount(distance);
+
+  // 合計タイムは常に入力できる（ラップはあくまで任意）
+  var total = el('input', 'input');
+  total.type = 'text'; total.setAttribute('inputmode', 'decimal');
+  total.placeholder = '1.23.45 / 30.20';
+  container.appendChild(total);
+
   if (n === 0) {
-    var inp = el('input', 'input');
-    inp.type = 'text'; inp.setAttribute('inputmode', 'decimal');
-    inp.placeholder = '1.23.45 / 30.20';
-    container.appendChild(inp);
     return {
-      isEmpty: function () { return inp.value.trim() === ''; },
+      isEmpty: function () { return total.value.trim() === ''; },
       read: function () {
-        var v = inp.value.trim();
+        var v = total.value.trim();
         parseTimeToSeconds(v); // 検証（不正なら例外）
         return { time: v, laps: null };
       },
-      clear: function () { inp.value = ''; }
+      clear: function () { total.value = ''; },
+      getTotal: function () { return total.value; },
+      setTotal: function (v) { total.value = v || ''; }
     };
   }
-  // ラップ欄（経過タイムを入力 → 区間ラップを自動表示）
+
+  // ---- 200m以上：ラップ入力（任意・折りたたみ） ----
+  var toggle = el('button', 'lap-toggle', '＋ ラップ（50mごと）を入力');
+  toggle.type = 'button';
+  container.appendChild(toggle);
+
+  var wrap = el('div', 'lap-wrap hidden');
   var grid = el('div', 'lap-grid');
   var inputs = [];
   for (var i = 1; i <= n; i++) {
     var cell = el('div', 'lap-cell');
     cell.appendChild(el('span', 'lap-num', (i * 50) + 'm'));
-    var inp2 = el('input', 'input');
-    inp2.type = 'text'; inp2.setAttribute('inputmode', 'decimal');
-    inp2.placeholder = '経過';
-    cell.appendChild(inp2);
+    var inp = el('input', 'input');
+    inp.type = 'text'; inp.setAttribute('inputmode', 'decimal');
+    inp.placeholder = '経過';
+    cell.appendChild(inp);
     grid.appendChild(cell);
-    inputs.push(inp2);
+    inputs.push(inp);
   }
   var splitView = el('div', 'split-view');
+  wrap.appendChild(grid);
+  wrap.appendChild(splitView);
+  container.appendChild(wrap);
+
+  var open = false;
+  toggle.onclick = function () {
+    open = !open;
+    wrap.classList.toggle('hidden', !open);
+    toggle.textContent = open ? '− ラップ入力を閉じる' : '＋ ラップ（50mごと）を入力';
+    toggle.classList.toggle('active', open);
+  };
+
+  function lapValues() { return inputs.map(function (x) { return x.value.trim(); }); }
+  function filledCount() { return lapValues().filter(function (v) { return v !== ''; }).length; }
+
+  // 経過タイムから区間ラップを計算して表示し、最終ラップを合計タイムに反映する
   function recompute() {
-    var parts = []; var prev = 0; var ok = true;
-    for (var i = 0; i < inputs.length; i++) {
-      var raw = inputs[i].value.trim();
-      if (raw === '') break;
+    var vals = lapValues(); var parts = []; var prev = 0; var ok = true;
+    for (var i = 0; i < vals.length; i++) {
+      if (vals[i] === '') break;
       var sec;
-      try { sec = parseTimeToSeconds(raw); } catch (e) { ok = false; break; }
+      try { sec = parseTimeToSeconds(vals[i]); } catch (e) { ok = false; break; }
       var sp = Math.round((sec - prev) * 100) / 100;
       prev = sec;
-      parts.push((i * 50 + 50) + 'm: ' + formatSeconds(sp < 0 ? 0 : sp));
+      parts.push(((i + 1) * 50) + 'm: ' + formatSeconds(sp < 0 ? 0 : sp));
     }
     if (parts.length && ok) {
       splitView.textContent = '区間ラップ → ' + parts.join(' / ');
@@ -265,33 +293,53 @@ function createTimeEntry(container, distance) {
     } else {
       splitView.classList.remove('show');
     }
+    // 全て埋まっていれば合計タイム欄を自動更新
+    var last = vals[vals.length - 1];
+    if (ok && last !== '' && filledCount() === n) total.value = last;
   }
   inputs.forEach(function (x) { x.addEventListener('input', recompute); });
-  container.appendChild(grid);
-  container.appendChild(splitView);
+
   return {
-    isEmpty: function () { return inputs.every(function (x) { return x.value.trim() === ''; }); },
+    isEmpty: function () { return total.value.trim() === '' && filledCount() === 0; },
     read: function () {
-      var laps = inputs.map(function (x) { return x.value.trim(); });
-      if (laps.some(function (v) { return v === ''; })) {
-        throw new Error('全ての経過タイムを入力してください');
+      var filled = filledCount();
+      if (filled > 0) {
+        if (filled < n) {
+          throw new Error('ラップは全て入力するか、空にして合計タイムのみで記録してください');
+        }
+        var vals = lapValues();
+        var secs = vals.map(function (v) { return parseTimeToSeconds(v); });
+        for (var i = 1; i < secs.length; i++) {
+          if (secs[i] < secs[i - 1]) throw new Error('経過タイムは前の区間より大きくしてください');
+        }
+        return { time: vals[n - 1], laps: vals };
       }
-      var secs = laps.map(parseTimeToSeconds);
-      for (var i = 1; i < secs.length; i++) {
-        if (secs[i] < secs[i - 1]) throw new Error('経過タイムは前の区間より大きくしてください');
-      }
-      return { time: laps[laps.length - 1], laps: laps };
+      // ラップ未入力 → 合計タイムのみで記録
+      var v = total.value.trim();
+      parseTimeToSeconds(v);
+      return { time: v, laps: null };
     },
-    clear: function () { inputs.forEach(function (x) { x.value = ''; }); recompute(); }
+    clear: function () {
+      total.value = '';
+      inputs.forEach(function (x) { x.value = ''; });
+      recompute();
+    },
+    getTotal: function () { return total.value; },
+    setTotal: function (v) { total.value = v || ''; }
   };
 }
 
-// TT用のタイム入力欄を（距離に応じて）作り直す
+// TT用のタイム入力欄を（距離に応じて）作り直す。
+// 同じラップ構成のままなら作り直さず、入力済みの内容を保持する。
 function buildTtEntry() {
   var dist = Number($('inTimeDistance').value) || 0;
-  state.ttEntry = createTimeEntry($('ttEntry'), dist);
   var n = lapCount(dist);
-  $('ttLapHint').textContent = n ? '（' + n + '本の経過タイムを入力）' : '';
+  if (state.ttEntry && state.ttLapN === n) return;
+  var prev = state.ttEntry ? state.ttEntry.getTotal() : '';
+  state.ttEntry = createTimeEntry($('ttEntry'), dist);
+  state.ttEntry.setTotal(prev);
+  state.ttLapN = n;
+  $('ttLapHint').textContent = n ? '（ラップ入力も可）' : '';
 }
 
 // ---- Short / Middle：距離×本数×セットの一括入力 ----
@@ -693,11 +741,15 @@ function deleteTimeRecord(id) {
 }
 
 // ---- 編集モーダル ----
-function buildEditEntry() {
+function buildEditEntry(force) {
   var dist = Number($('editTimeDistance').value) || 0;
-  state.editEntry = createTimeEntry($('editEntry'), dist);
   var n = lapCount(dist);
-  $('editLapHint').textContent = n ? '（' + n + '本の経過タイム）' : '';
+  if (!force && state.editEntry && state.editLapN === n) return;
+  var prev = (!force && state.editEntry) ? state.editEntry.getTotal() : '';
+  state.editEntry = createTimeEntry($('editEntry'), dist);
+  state.editEntry.setTotal(prev);
+  state.editLapN = n;
+  $('editLapHint').textContent = n ? '（ラップ入力も可）' : '';
 }
 function openEdit(log) {
   state.editLogId = log.id;
@@ -713,7 +765,7 @@ function openEdit(log) {
   $('editDistance').value = log.distance;
   $('editMemo').value = log.memo;
   $('editTimeDistance').value = '';
-  buildEditEntry();
+  buildEditEntry(true);
   renderEditTimes();
   $('editOverlay').classList.add('show');
 }
@@ -751,7 +803,7 @@ function addEditTime() {
     seconds: parseTimeToSeconds(res.time), pool: pool, format: format
   });
   $('editTimeDistance').value = '';
-  buildEditEntry();
+  buildEditEntry(true);
   renderEditTimes();
 }
 function saveEdit() {
@@ -1296,7 +1348,7 @@ function bindEvents() {
   ['setDistance', 'setReps', 'setSets'].forEach(function (id) {
     $(id).addEventListener('input', updateSetSummary);
   });
-  $('inTimeDistance').addEventListener('input', buildTtEntry);
+  $('inTimeDistance').addEventListener('input', function () { buildTtEntry(); });
   $('savePracticeBtn').onclick = savePractice;
 
   // カレンダー
@@ -1316,7 +1368,7 @@ function bindEvents() {
   $('editAddTimeBtn').onclick = addEditTime;
   $('editCancelBtn').onclick = closeEdit;
   $('editSaveBtn').onclick = saveEdit;
-  $('editTimeDistance').addEventListener('input', buildEditEntry);
+  $('editTimeDistance').addEventListener('input', function () { buildEditEntry(); });
   $('editOverlay').onclick = function (e) { if (e.target === $('editOverlay')) closeEdit(); };
 
   // 分析
