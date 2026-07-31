@@ -361,9 +361,7 @@ function updateSetSummary() {
 }
 function buildTimeGrid() {
   var event = $('inEvent').value;
-  var pool = $('inPool').value;
   if (!event) { toast('種目を登録・選択してください', true); return; }
-  if (!pool) { toast('プールを登録・選択してください', true); return; }
   var d = setDims();
   if (!(d.distance > 0)) { toast('距離を入力してください', true); return; }
   if (!(d.reps > 0)) { toast('本数を入力してください', true); return; }
@@ -394,7 +392,6 @@ function buildTimeGrid() {
 }
 function addGridToPending() {
   var event = $('inEvent').value;
-  var pool = $('inPool').value;
   var d = setDims();
   var added = [];
   for (var i = 0; i < state.gridEntries.length; i++) {
@@ -408,7 +405,7 @@ function addGridToPending() {
     }
     added.push({
       event: event, distance: d.distance, time: res.time, laps: res.laps,
-      seconds: parseTimeToSeconds(res.time), pool: pool, format: state.inputFormat
+      seconds: parseTimeToSeconds(res.time), format: state.inputFormat
     });
   }
   if (!added.length) { toast('タイムを1本以上入力してください', true); return; }
@@ -423,18 +420,16 @@ function addGridToPending() {
 function addPendingTime() {
   var event = $('inEvent').value;
   var distance = $('inTimeDistance').value;
-  var pool = $('inPool').value;
 
   if (!event) { toast('種目を登録・選択してください', true); return; }
   if (!distance) { toast('距離を入力してください', true); return; }
-  if (!pool) { toast('プールを登録・選択してください', true); return; }
   var res;
   try { res = state.ttEntry.read(); }
   catch (e) { toast(e.message, true); return; }
 
   state.pending.push({
     event: event, distance: Number(distance), time: res.time, laps: res.laps,
-    seconds: parseTimeToSeconds(res.time), pool: pool, format: 'TT'
+    seconds: parseTimeToSeconds(res.time), format: 'TT'
   });
   state.ttEntry.clear();
   renderPending();
@@ -444,8 +439,7 @@ function pendingItemHtml(t) {
   return '<span class="ev">' + esc(t.event) + '</span> ' +
     esc(t.distance) + 'm <span class="tm">' + esc(formatSeconds(t.seconds)) + '</span>' +
     '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' +
-    (t.laps && t.laps.length ? '<span class="rec-lap-flag">ラップ</span>' : '') +
-    '<div class="sub">' + esc(t.pool) + '</div>';
+    (t.laps && t.laps.length ? '<span class="rec-lap-flag">ラップ</span>' : '');
 }
 
 function renderPending() {
@@ -473,8 +467,9 @@ function savePractice() {
     date: date,
     distance: distance ? Number(distance) : 0,
     memo: $('inMemo').value,
+    pool: $('inPool').value,
     times: state.pending.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, pool: t.pool, format: t.format };
+      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, format: t.format };
     })
   };
   showLoading(true);
@@ -599,6 +594,11 @@ function renderCalendar() {
     if (info) {
       cell.appendChild(el('span', 'dmark'));
       if (info.distance) cell.appendChild(el('span', 'ddist', info.distance + 'm'));
+      if (info.pools && info.pools.length) {
+        var pl = el('span', 'dpool', info.pools.join('・'));
+        pl.title = info.pools.join('・');
+        cell.appendChild(pl);
+      }
     }
     (function (ds) { cell.onclick = function () { selectDay(ds); }; })(dateStr);
     grid.appendChild(cell);
@@ -629,7 +629,8 @@ function renderDayDetail(dateStr, logs) {
   logs.forEach(function (log) {
     var card = el('div', 'history-card');
     var head = el('div', 'history-head');
-    head.innerHTML = '<span class="history-date">総距離 ' + esc(log.distance) + 'm</span>';
+    head.innerHTML = '<span class="history-date">総距離 ' + esc(log.distance) + 'm</span>' +
+      (log.pool ? '<span class="history-dist">🏊 ' + esc(log.pool) + '</span>' : '');
     card.appendChild(head);
     if (log.memo) card.appendChild(el('div', 'history-memo', log.memo));
 
@@ -639,8 +640,7 @@ function renderDayDetail(dateStr, logs) {
       var lapFlag = (t.laps && t.laps.length) ? '<span class="rec-lap-flag">ラップ</span>' : '';
       main.innerHTML = '<div class="rec-main"><span class="ev">' + esc(t.event) + '</span> ' +
         esc(t.distance) + 'm <span class="tm">' + esc(t.timeText) + '</span>' +
-        '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' + lapFlag + '</div>' +
-        '<div class="rec-sub">' + esc(t.pool || '-') + '</div>';
+        '<span class="type-badge ' + esc(t.format) + '">' + esc(t.format) + '</span>' + lapFlag + '</div>';
       row.appendChild(main);
       row.appendChild(el('span', 'chev', '›'));
       row.onclick = function () { openRecordDetail(t); };
@@ -662,7 +662,8 @@ function renderDayDetail(dateStr, logs) {
 function openRecordDetail(t) {
   $('rdTitle').textContent = t.event + ' ' + t.distance + 'm';
   var html = '<div class="rd-summary">タイム<span class="big">' + esc(t.timeText) + '</span></div>' +
-    '<div class="rec-sub" style="margin-bottom:10px;">' + esc(t.pool || '-') + '　/　' + esc(t.format) + '</div>';
+    '<div class="rec-sub" style="margin-bottom:10px;">' + esc(t.date || '') +
+    (t.pool ? '　/　' + esc(t.pool) : '') + '　/　' + esc(t.format) + '</div>';
   if (t.laps && t.laps.length) {
     var rows = '';
     t.laps.forEach(function (l) {
@@ -759,10 +760,11 @@ function openEdit(log) {
     var lapStrs = (t.laps && t.laps.length) ? t.laps.map(function (l) { return l.cumText; }) : null;
     return {
       event: t.event, distance: t.distance, time: t.timeText, laps: lapStrs,
-      seconds: t.seconds, pool: t.pool, format: t.format || 'TT'
+      seconds: t.seconds, format: t.format || 'TT'
     };
   });
   $('editDate').value = log.date;
+  $('editPool').value = log.pool || '';
   $('editDistance').value = log.distance;
   $('editMemo').value = log.memo;
   $('editTimeDistance').value = '';
@@ -791,17 +793,15 @@ function renderEditTimes() {
 function addEditTime() {
   var event = $('editEvent').value;
   var distance = $('editTimeDistance').value;
-  var pool = $('editPool').value;
   var format = $('editFormat').value;
   if (!event) { toast('種目を選択してください', true); return; }
   if (!distance) { toast('距離を入力してください', true); return; }
-  if (!pool) { toast('プールを選択してください', true); return; }
   var res;
   try { res = state.editEntry.read(); }
   catch (e) { toast(e.message, true); return; }
   state.editTimes.push({
     event: event, distance: Number(distance), time: res.time, laps: res.laps,
-    seconds: parseTimeToSeconds(res.time), pool: pool, format: format
+    seconds: parseTimeToSeconds(res.time), format: format
   });
   $('editTimeDistance').value = '';
   buildEditEntry(true);
@@ -815,8 +815,9 @@ function saveEdit() {
     date: date,
     distance: $('editDistance').value ? Number($('editDistance').value) : 0,
     memo: $('editMemo').value,
+    pool: $('editPool').value,
     times: state.editTimes.map(function (t) {
-      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, pool: t.pool, format: t.format || 'TT' };
+      return { event: t.event, distance: t.distance, time: t.time, laps: t.laps, format: t.format || 'TT' };
     })
   };
   showLoading(true);

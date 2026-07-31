@@ -2,7 +2,7 @@
  * 水泳練習記録アプリ（GAS Webアプリ）
  * --------------------------------------------------
  * - スマホのブラウザから練習直後にその場で入力するのがメインユースケース
- * - 練習ログ（日付・総距離・メモ）と、その日の複数のタイム記録を保存
+ * - 練習ログ（日付・プール・総距離・メモ）と、その日の複数のタイム記録を保存
  * - 種目マスタ / プールマスタ（アーカイブ方式）
  * - 種目・水路タイプ・期間で絞り込んだタイムの折れ線グラフ分析
  * - 履歴の閲覧・編集・削除
@@ -57,10 +57,14 @@ function setupSheets_() {
   let practice = ss.getSheetByName(SHEET_PRACTICE);
   if (!practice) {
     practice = ss.insertSheet(SHEET_PRACTICE);
-    practice.getRange(1, 1, 1, 4)
-      .setValues([['ID', '日付', '総距離', 'メモ']])
+    practice.getRange(1, 1, 1, 5)
+      .setValues([['ID', '日付', '総距離', 'メモ', 'プール']])
       .setFontWeight('bold');
     practice.setFrozenRows(1);
+  } else if (String(practice.getRange(1, 5).getValue()) !== 'プール') {
+    // 既存シートに「プール」列が無ければ追加し、過去データはタイム記録から推測して埋める
+    practice.getRange(1, 5).setValue('プール').setFontWeight('bold');
+    backfillPracticePool_(ss, practice);
   }
 
   // タイム記録
@@ -137,6 +141,46 @@ function setupSheets_() {
   if (blank && ss.getSheets().length > 1) {
     try { ss.deleteSheet(blank); } catch (e) {}
   }
+}
+
+/**
+ * 練習ログの「プール」列を、その練習に紐づくタイム記録のプールから推測して埋める。
+ * （プールがタイム記録側に紐づいていた頃のデータ向けの一度きりの移行処理）
+ * 同じ練習に複数のプールがある場合は最も多く使われたものを採用する。
+ */
+function backfillPracticePool_(ss, practiceSheet) {
+  const timeSheet = ss.getSheetByName(SHEET_TIME);
+  if (!timeSheet) return;
+
+  // logId ごとにプール名の出現回数を数える
+  const timeValues = timeSheet.getDataRange().getValues();
+  const counts = {};
+  for (let i = 1; i < timeValues.length; i++) {
+    const row = timeValues[i];
+    if (!row[0]) continue;
+    const pool = String(row[6] || '').trim();
+    if (!pool) continue;
+    const logId = String(row[1]);
+    if (!counts[logId]) counts[logId] = {};
+    counts[logId][pool] = (counts[logId][pool] || 0) + 1;
+  }
+
+  const lastRow = practiceSheet.getLastRow();
+  if (lastRow < 2) return;
+  const ids = practiceSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  const pools = practiceSheet.getRange(2, 5, lastRow - 1, 1).getValues();
+  let changed = false;
+  for (let i = 0; i < ids.length; i++) {
+    if (!ids[i][0] || String(pools[i][0] || '').trim()) continue;
+    const c = counts[String(ids[i][0])];
+    if (!c) continue;
+    let best = '', bestN = 0;
+    Object.keys(c).forEach(function (name) {
+      if (c[name] > bestN) { best = name; bestN = c[name]; }
+    });
+    if (best) { pools[i][0] = best; changed = true; }
+  }
+  if (changed) practiceSheet.getRange(2, 5, pools.length, 1).setValues(pools);
 }
 
 // ===== タイム変換ヘルパー =====
@@ -305,6 +349,10 @@ function savePractice(payload) {
   setupSheets_();
   if (!payload || !payload.date) throw new Error('日付を入力してください');
 
+  // プールは練習（日付）単位で持つ。タイム記録側にも同じ値を保持しておく
+  // （水路タイプでの絞り込みをタイム記録だけで解決できるようにするため）
+  const logPool = String(payload.pool || '').trim();
+
   // タイム記録を事前に検証・変換（1件でも不正なら保存しない）
   const times = (payload.times || []).map(function (t) {
     let format = String(t.format || DEFAULT_FORMAT);
@@ -329,7 +377,7 @@ function savePractice(payload) {
       event: String(t.event || '').trim(),
       distance: Number(t.distance) || 0,
       seconds: seconds,
-      pool: String(t.pool || '').trim(),
+      pool: logPool,
       format: format,
       laps: laps
     };
@@ -342,13 +390,13 @@ function savePractice(payload) {
   const logId = payload.id || Utilities.getUuid();
   const distance = Number(payload.distance) || 0;
   const memo = String(payload.memo || '');
-  const logRow = [logId, payload.date, distance, memo];
+  const logRow = [logId, payload.date, distance, memo, logPool];
 
   if (payload.id) {
     // 更新：練習ログ行を書き換え、既存のタイム記録を全削除して入れ直す
     const rowIndex = findRowById_(practiceSheet, payload.id);
     if (rowIndex > 0) {
-      practiceSheet.getRange(rowIndex, 1, 1, 4).setValues([logRow]);
+      practiceSheet.getRange(rowIndex, 1, 1, 5).setValues([logRow]);
     } else {
       practiceSheet.appendRow(logRow);
     }
@@ -436,10 +484,12 @@ function getCalendarMonth(year, month) {
     const d = new Date(row[1]);
     if (d.getFullYear() !== year || (d.getMonth() + 1) !== month) continue;
     const dateStr = fmtDate_(row[1], tz);
-    if (!days[dateStr]) days[dateStr] = { distance: 0, count: 0 };
+    if (!days[dateStr]) days[dateStr] = { distance: 0, count: 0, pools: [] };
     const dist = Number(row[2]) || 0;
     days[dateStr].distance += dist;
     days[dateStr].count += 1;
+    const pool = String(row[4] || '').trim();
+    if (pool && days[dateStr].pools.indexOf(pool) < 0) days[dateStr].pools.push(pool);
     monthDistance += dist;
   }
   return { year: year, month: month, monthDistance: monthDistance, days: days };
@@ -464,6 +514,7 @@ function getDayLogs(dateStr) {
       date: fmtDate_(row[1], tz),
       distance: Number(row[2]) || 0,
       memo: String(row[3] || ''),
+      pool: String(row[4] || ''),
       times: byLog[logId] || []
     });
   }
@@ -493,6 +544,7 @@ function getHistory(eventFilter) {
       date: fmtDate_(row[1], tz),
       distance: Number(row[2]) || 0,
       memo: String(row[3] || ''),
+      pool: String(row[4] || ''),
       times: times
     });
   }
