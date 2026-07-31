@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# 環境変数の実ファイルは絶対にコミットしない（.env.local.example だけ共有する）
+.env
+.env.local
+.env*.local
+
+.DS_Store
+.vercel
