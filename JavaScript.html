@@ -213,10 +213,11 @@ function switchFormat(fmt) {
 }
 
 // ---- ラップ対応のタイム入力コンポーネント ----
-// distance が 200以上かつ50の倍数なら 50mごとの経過タイム欄を、そうでなければ単一タイム欄を作る。
+// distance が 100以上かつ50の倍数なら 50mごとの経過タイム欄を、そうでなければ単一タイム欄を作る。
+// （100m なら 50m・100m の2本）
 function lapCount(distance) {
   var d = Number(distance) || 0;
-  return (d >= 200 && d % 50 === 0) ? d / 50 : 0;
+  return (d >= 100 && d % 50 === 0) ? d / 50 : 0;
 }
 function createTimeEntry(container, distance) {
   container.innerHTML = '';
