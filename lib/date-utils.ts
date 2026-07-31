@@ -40,10 +40,26 @@ export function parseMonthString(s: string): Date {
   return new Date(y, m - 1, 1);
 }
 
-/** 今日（時刻を0時に切り落とした Date）。日数差の計算で時刻が混ざるのを防ぐ。 */
+/**
+ * 「今日」を日本時間で求める（時刻は0時に切り落とす）。
+ *
+ * 【なぜ new Date() をそのまま使わないのか】
+ * Vercel のサーバーはタイムゾーンが UTC です。日本時間の朝8時は UTC では前日23時なので、
+ * new Date().getDate() をそのまま使うと「サーバーだけ1日前」になる時間帯が生まれます。
+ * 受付開始日の判定が1日ずれると予約を取り逃すので、明示的に Asia/Tokyo で計算します。
+ *
+ * Intl.DateTimeFormat の 'en-CA' ロケールは 'YYYY-MM-DD' 形式を返してくれるので、
+ * これを分解して「日本時間での年月日」を得ています。
+ */
 export function today(): Date {
-  const n = new Date();
-  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  const jst = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const [y, m, d] = jst.split("-").map(Number);
+  return new Date(y, m - 1, d);
 }
 
 /**

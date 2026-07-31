@@ -6,7 +6,7 @@ import { useEditMode } from "@/components/EditModeProvider";
 import { EventDialog } from "./EventDialog";
 import { BulkDialog } from "./BulkDialog";
 import { EVENT_TYPE_LABEL, WEEKDAY_LABEL, type EventRow, type EventType } from "@/lib/types";
-import { addMonths, buildCalendarGrid, toDateString, trimSeconds } from "@/lib/date-utils";
+import { addMonths, buildCalendarGrid, today, toDateString, trimSeconds } from "@/lib/date-utils";
 
 /**
  * カレンダー本体（Client Component）
@@ -47,7 +47,7 @@ export function CalendarBoard({
     byDate.set(ev.date, list);
   }
 
-  const todayStr = toDateString(new Date());
+  const todayStr = toDateString(today());
 
   return (
     <div className="print-area">
