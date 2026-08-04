@@ -124,29 +124,25 @@ function isMultiDay(s) {
          s.endDate && s.endDate !== s.startDate;
 }
 
-function render() {
-  // ヘッダー（例：8 / August / 2026）
-  document.getElementById('monthNum').textContent = state.month;
-  document.getElementById('monthName').textContent = MONTH_NAMES[state.month - 1];
-  document.getElementById('yearLabel').textContent = state.year;
-
-  const cal = document.getElementById('calendar');
-  cal.innerHTML = '';
-
-  // 月の最初の日曜（グリッド開始日）。常に6週ぶん描画し、前月末・翌月頭はグレー表示
+/**
+ * 表示中の月のマス（6週×7日＝42個）の中身を組み立てて返す。
+ * 画面描画（render）と JPG 出力（exportJpg）の両方がこれを使うので、
+ * 画面と書き出し画像が必ず同じ内容になります。
+ */
+function buildMonthCells() {
+  // 月の最初の日曜（グリッド開始日）。常に6週ぶん。前月末・翌月頭はグレー表示
   const first = new Date(state.year, state.month - 1, 1);
   const gridStart = addDays(first, -first.getDay());
   const gridStartStr = ymd(gridStart);
   const gridEndStr = ymd(addDays(gridStart, 41));
-  const WEEKS = 6;
 
   // ---- 複数日イベント（合宿・大会など）→ 期間のマスを色で塗りつぶす ----
   // mdMap[dStr] = { color, title, sched }  ※タイトルは期間の中央日だけに表示
   const mdMap = {};
   state.schedules.forEach(s => {
     if (!isMultiDay(s)) return;
-    let st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
-    let en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
+    const st = s.startDate < gridStartStr ? gridStartStr : s.startDate;
+    const en = (s.endDate || s.startDate) > gridEndStr ? gridEndStr : (s.endDate || s.startDate);
     if (st > gridEndStr || en < gridStartStr || st > en) return;
     const days = [];
     for (let d = parseYmd(st); ymd(d) <= en; d = addDays(d, 1)) days.push(ymd(d));
@@ -156,54 +152,76 @@ function render() {
     });
   });
 
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(gridStart, i);
+    const dStr = ymd(d);
+    const inMonth = (d.getMonth() + 1) === state.month;
+    const holiday = state.holidays[dStr] || '';
+    const cell = {
+      date: dStr, dayNum: d.getDate(), dow: d.getDay(),
+      inMonth: inMonth, holiday: holiday, blocks: [], note: ''
+    };
+
+    if (inMonth) {
+      // このマスに載る要素（複数日イベント塗り / 練習 / 単発・毎週イベント）
+      const md = mdMap[dStr];
+      const practices = schedulesOnDate(dStr).filter(s => s.type === 'practice').map(s => effective(s, dStr));
+      const events = schedulesOnDate(dStr).filter(s => s.type === 'event' && !isMultiDay(s)).map(s => effective(s, dStr));
+      if (md) cell.blocks.push({ kind: 'md', color: md.color, title: md.title, sched: md.sched });
+      practices.forEach(p => cell.blocks.push({ kind: 'practice', color: p.color, s: p }));
+      events.forEach(e => cell.blocks.push({ kind: 'event', color: e.color, s: e }));
+      // 右上ノート（赤・小）：祝日名 ＋ 練習のブログ担当
+      cell.note = buildNoteText(holiday, practices);
+    }
+    cells.push(cell);
+  }
+  return cells;
+}
+
+function render() {
+  // ヘッダー（例：8 / August / 2026）
+  document.getElementById('monthNum').textContent = state.month;
+  document.getElementById('monthName').textContent = MONTH_NAMES[state.month - 1];
+  document.getElementById('yearLabel').textContent = state.year;
+
+  const cal = document.getElementById('calendar');
+  cal.innerHTML = '';
+  const cells = buildMonthCells();
+
   // 6週間ぶんを描画
-  for (let w = 0; w < WEEKS; w++) {
-    const weekStart = addDays(gridStart, w * 7);
+  for (let w = 0; w < 6; w++) {
     const weekEl = document.createElement('div');
     weekEl.className = 'week';
     const grid = document.createElement('div');
     grid.className = 'week-grid';
 
     for (let c = 0; c < 7; c++) {
-      const d = addDays(weekStart, c);
-      const dStr = ymd(d);
-      const dow = d.getDay();
-      const inMonth = (d.getMonth() + 1) === state.month;
-      const holiday = state.holidays[dStr];
+      const cell = cells[w * 7 + c];
+      const dStr = cell.date;
+      const blocks = cell.blocks;
 
       const dayEl = document.createElement('div');
       dayEl.className = 'day';
-      if (dow === 0) dayEl.classList.add('sun');
-      if (dow === 6) dayEl.classList.add('sat');
-      if (holiday) dayEl.classList.add('holiday');
-      if (!inMonth) dayEl.classList.add('other-month');
+      if (cell.dow === 0) dayEl.classList.add('sun');
+      if (cell.dow === 6) dayEl.classList.add('sat');
+      if (cell.holiday) dayEl.classList.add('holiday');
+      if (!cell.inMonth) dayEl.classList.add('other-month');
 
       // 日付番号（マス左上）
       const num = document.createElement('div');
       num.className = 'day-num';
-      num.textContent = d.getDate();
+      num.textContent = cell.dayNum;
       dayEl.appendChild(num);
 
       // 前月末・翌月頭は番号のみ（グレー）で、予定・クリックなし
-      if (!inMonth) { grid.appendChild(dayEl); continue; }
+      if (!cell.inMonth) { grid.appendChild(dayEl); continue; }
       dayEl.dataset.date = dStr;
 
-      // このマスに載る要素を集める（複数日イベント塗り / 練習 / 単発・毎週イベント）
-      const md = mdMap[dStr];
-      const practices = schedulesOnDate(dStr).filter(s => s.type === 'practice').map(s => effective(s, dStr));
-      const events = schedulesOnDate(dStr).filter(s => s.type === 'event' && !isMultiDay(s)).map(s => effective(s, dStr));
-
-      const blocks = [];
-      if (md) blocks.push({ kind: 'md', color: md.color, title: md.title, sched: md.sched });
-      practices.forEach(p => blocks.push({ kind: 'practice', color: p.color, s: p }));
-      events.forEach(e => blocks.push({ kind: 'event', color: e.color, s: e }));
-
-      // 右上ノート（赤・小）：祝日名 ＋ 練習のブログ担当
-      const noteText = buildNoteText(holiday, practices);
-      if (noteText) {
+      if (cell.note) {
         const note = document.createElement('div');
         note.className = 'day-note';
-        note.textContent = noteText;
+        note.textContent = cell.note;
         dayEl.appendChild(note);
       }
 
@@ -302,6 +320,226 @@ function darken(hex) {
   return 'rgb(' + Math.round(parseInt(m[1], 16) * f) + ',' +
                   Math.round(parseInt(m[2], 16) * f) + ',' +
                   Math.round(parseInt(m[3], 16) * f) + ')';
+}
+
+/* =========================================================
+   [4b] JPG出力（画面と同じ横長カレンダーを画像で書き出す）
+   - 外部ライブラリなしで Canvas に直接描画するので、
+     iPad/iPhone の Safari でもそのまま動きます
+   - 大きさ・文字サイズを変えたいときは下の JPG 定数を触ってください
+   ========================================================= */
+const JPG = {
+  W: 2400,        // 出力画像の横幅(px)。大きくすると高精細になります
+  PAD: 64,        // 外側の余白
+  TITLE_H: 210,   // タイトル（9 September / 2026）の高さ
+  HEAD_H: 76,     // 曜日見出しの高さ
+  CELL_H: 176,    // 日付マス1つの高さ
+  QUALITY: 0.92,  // JPEG品質(0〜1)
+  FONT: "'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro','Hiragino Sans','Yu Gothic','Meiryo',sans-serif"
+};
+
+let exportUrl = null; // 直前に作った画像URL（作り直すときに解放する）
+
+/** ボタンから呼ばれる本体：カレンダーを描いて画像プレビューを表示 */
+function exportJpg() {
+  const cells = buildMonthCells();
+  const W = JPG.W, PAD = JPG.PAD;
+  const colW = (W - PAD * 2) / 7;
+  const gridTop = JPG.TITLE_H, headH = JPG.HEAD_H, cellH = JPG.CELL_H;
+  const H = gridTop + headH + cellH * 6 + PAD;
+
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+
+  // 背景（白）
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  drawJpgTitle_(ctx, W, PAD);
+  drawJpgWeekHeader_(ctx, PAD, gridTop, colW, headH);
+  for (let i = 0; i < 42; i++) {
+    const r = Math.floor(i / 7), c = i % 7;
+    drawJpgCell_(ctx, cells[i], PAD + c * colW, gridTop + headH + r * cellH, colW, cellH);
+  }
+
+  showExportPreview_(cv);
+}
+
+/** タイトル（左：9 September ／ 右：2026） */
+function drawJpgTitle_(ctx, W, PAD) {
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#222222';
+  const baseY = 150;
+
+  ctx.font = '800 96px ' + JPG.FONT;
+  const mnum = String(state.month);
+  ctx.fillText(mnum, PAD, baseY);
+  const numW = ctx.measureText(mnum).width;
+
+  ctx.font = '700 62px ' + JPG.FONT;
+  ctx.fillText(MONTH_NAMES[state.month - 1], PAD + numW + 20, baseY);
+
+  ctx.textAlign = 'right';
+  ctx.font = '800 62px ' + JPG.FONT;
+  ctx.fillText(String(state.year), W - PAD, baseY);
+  ctx.textAlign = 'left';
+}
+
+/** 曜日見出し（日＝赤 / 土＝青 / 平日＝グレー） */
+function drawJpgWeekHeader_(ctx, PAD, top, colW, headH) {
+  const labels = ['日 Sun', '月 Mon', '火 Tue', '水 Wed', '木 Thu', '金 Fri', '土 Sat'];
+  for (let c = 0; c < 7; c++) {
+    const x = PAD + c * colW;
+    ctx.fillStyle = c === 0 ? '#e8281e' : (c === 6 ? '#2b5ed6' : '#ededed');
+    ctx.fillRect(x, top, colW, headH);
+    ctx.strokeStyle = '#cfd4dc';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, top, colW, headH);
+
+    ctx.fillStyle = (c === 0 || c === 6) ? '#ffffff' : '#333333';
+    ctx.font = '700 30px ' + JPG.FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(labels[c], x + colW / 2, top + headH / 2);
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** 日付マス1つ（塗り・枠・日付番号・右上ノート・中身） */
+function drawJpgCell_(ctx, cell, x, y, w, h) {
+  const blocks = cell.blocks;
+
+  // 予定色でマスを塗りつぶし（複数あるときは上下に分割）
+  if (blocks.length === 1) {
+    ctx.fillStyle = hexToRgba(blocks[0].color, 0.16);
+    ctx.fillRect(x, y, w, h);
+  } else if (blocks.length > 1) {
+    const bh = h / blocks.length;
+    blocks.forEach((b, i) => {
+      ctx.fillStyle = hexToRgba(b.color, 0.16);
+      ctx.fillRect(x, y + i * bh, w, bh);
+    });
+  }
+
+  // 枠線
+  ctx.strokeStyle = '#cfd4dc';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h);
+
+  // 日付番号（左上）
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = '700 30px ' + JPG.FONT;
+  ctx.fillStyle = !cell.inMonth ? '#c3cad6'
+                : (cell.holiday || cell.dow === 0) ? '#e8281e'
+                : (cell.dow === 6) ? '#2b5ed6' : '#222222';
+  ctx.fillText(String(cell.dayNum), x + 12, y + 10);
+
+  if (!cell.inMonth) return;
+
+  // 右上ノート（祝日名・ブログ担当。赤・小）
+  if (cell.note) {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#e8281e';
+    ctx.font = '400 21px ' + JPG.FONT;
+    cell.note.split('\n').forEach((line, i) => {
+      ctx.fillText(line, x + w - 12, y + 12 + i * 25);
+    });
+  }
+
+  // 中身（練習＝場所＋時間 / イベント＝タイトル）
+  if (!blocks.length) return;
+  const bh = h / blocks.length;
+  blocks.forEach((b, i) => {
+    drawJpgCellBody_(ctx, b, x, y + i * bh, w, bh, blocks.length === 1);
+  });
+}
+
+/** マス内の文字（中央寄せ）。single=trueなら日付番号のぶん下げる */
+function drawJpgCellBody_(ctx, b, x, y, w, h, single) {
+  let mainText = '', timeText = '';
+  if (b.kind === 'practice') {
+    mainText = b.s.place || '練習';
+    timeText = b.s.time || '';
+  } else if (b.kind === 'md') {
+    mainText = b.title || '';        // 複数日イベントは中央の日だけタイトルあり
+  } else {
+    mainText = b.s.title || '(無題)';
+  }
+  if (!mainText && !timeText) return;
+
+  const maxW = w - 24;
+  const cx = x + w / 2;
+  const topPad = single ? 46 : 8;    // 日付番号・ノートに重ならないよう下げる
+  const areaY = y + topPad;
+  const areaH = h - topPad - 10;
+
+  const mainFont = '700 34px ' + JPG.FONT;
+  const timeFont = '400 24px ' + JPG.FONT;
+
+  ctx.font = mainFont;
+  const mainLines = mainText ? wrapJpgText_(ctx, mainText, maxW) : [];
+  ctx.font = timeFont;
+  const timeLines = [];
+  timeText.split('\n').forEach(t => {
+    if (t) wrapJpgText_(ctx, t, maxW).forEach(l => timeLines.push(l));
+  });
+
+  const mainLH = 40, timeLH = 30;
+  const gap = (mainLines.length && timeLines.length) ? 8 : 0;
+  const totalH = mainLines.length * mainLH + gap + timeLines.length * timeLH;
+  let ty = areaY + Math.max(0, (areaH - totalH) / 2);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = mainFont;
+  ctx.fillStyle = darken(b.color);
+  mainLines.forEach(l => { ctx.fillText(l, cx, ty); ty += mainLH; });
+
+  ty += gap;
+  ctx.font = timeFont;
+  ctx.fillStyle = '#555555';
+  timeLines.forEach(l => { ctx.fillText(l, cx, ty); ty += timeLH; });
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** はみ出す文字を折り返す（日本語は1文字単位で折り返し。最大3行） */
+function wrapJpgText_(ctx, text, maxW) {
+  const lines = [];
+  let cur = '';
+  const chars = String(text).split('');
+  for (let i = 0; i < chars.length; i++) {
+    const test = cur + chars[i];
+    if (cur && ctx.measureText(test).width > maxW) {
+      lines.push(cur);
+      cur = chars[i];
+    } else {
+      cur = test;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines.slice(0, 3);
+}
+
+/** 出来上がった画像をプレビュー表示（保存ボタン＋長押し保存に対応） */
+function showExportPreview_(canvas) {
+  const name = '部活カレンダー_' + state.year + '-' + pad(state.month) + '.jpg';
+  canvas.toBlob(function (blob) {
+    if (exportUrl) URL.revokeObjectURL(exportUrl);
+    exportUrl = URL.createObjectURL(blob);
+
+    document.getElementById('exportImg').src = exportUrl;
+    const a = document.getElementById('exportDownload');
+    a.href = exportUrl;
+    a.download = name;
+    document.getElementById('exportName').textContent = name;
+    document.getElementById('exportOverlay').classList.add('show');
+  }, 'image/jpeg', JPG.QUALITY);
 }
 
 /* ---------- [5] モーダル（追加・編集・削除） ---------- */
@@ -571,6 +809,12 @@ function revertOverride() {
 }
 
 /* ---------- [6] イベント登録・初期化 ---------- */
+
+/** JPGプレビューを閉じる */
+function closeExport() {
+  document.getElementById('exportOverlay').classList.remove('show');
+}
+
 function changeMonth(delta) {
   let m = state.month + delta;
   let y = state.year;
@@ -600,7 +844,13 @@ function bindEvents() {
     state.year = now.getFullYear(); state.month = now.getMonth() + 1;
     load();
   });
-  document.getElementById('pdfBtn').addEventListener('click', function () { window.print(); });
+  // JPG出力（画面と同じ横長カレンダーを画像化）
+  document.getElementById('jpgBtn').addEventListener('click', exportJpg);
+  document.getElementById('exportCloseBtn').addEventListener('click', closeExport);
+  document.getElementById('exportCancelBtn').addEventListener('click', closeExport);
+  document.getElementById('exportOverlay').addEventListener('click', function (e) {
+    if (e.target === this) closeExport(); // 背景クリックで閉じる
+  });
 
   // モーダル操作
   document.getElementById('modalCloseBtn').addEventListener('click', () => showModal(false));

@@ -12,8 +12,8 @@
         <button id="prevMonth" class="nav-btn" aria-label="前の月">‹</button>
         <button id="nextMonth" class="nav-btn" aria-label="次の月">›</button>
         <button id="todayBtn" class="ghost-btn">今日</button>
-        <!-- ボタン一つでPDF出力（印刷ダイアログから「PDFに保存」を選ぶ想定） -->
-        <button id="pdfBtn" class="ghost-btn">PDF出力</button>
+        <!-- ボタン一つでJPG出力（画面と同じ横長カレンダーを画像で書き出し） -->
+        <button id="jpgBtn" class="ghost-btn">JPG出力</button>
       </div>
       <div class="cal-titlebar">
         <span class="mnum" id="monthNum">–</span>
@@ -135,6 +135,24 @@
         <span class="spacer"></span>
         <button id="cancelBtn" class="ghost-btn">キャンセル</button>
         <button id="saveBtn" class="primary-btn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== JPG出力プレビュー ===== -->
+  <div id="exportOverlay" class="modal-overlay">
+    <div class="modal export-modal">
+      <div class="modal-head">
+        <h3>カレンダー画像（JPG）</h3>
+        <button id="exportCloseBtn" class="icon-btn" aria-label="閉じる">×</button>
+      </div>
+      <p class="hint">スマホ・iPadは画像を長押し →「"写真"に保存」でも保存できます</p>
+      <div class="export-preview"><img id="exportImg" alt="カレンダー画像"></div>
+      <p class="hint" id="exportName"></p>
+      <div class="modal-footer">
+        <span class="spacer"></span>
+        <button id="exportCancelBtn" class="ghost-btn">閉じる</button>
+        <a id="exportDownload" class="primary-btn" download>画像を保存</a>
       </div>
     </div>
   </div>
