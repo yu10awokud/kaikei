@@ -332,16 +332,14 @@ const JPG = {
   W: 2400,        // 出力画像の横幅(px)。大きくすると高精細になります
   PAD: 64,        // 外側の余白
   TITLE_H: 210,   // タイトル（9 September / 2026）の高さ
-  HEAD_H: 76,     // 曜日見出しの高さ
-  CELL_H: 176,    // 日付マス1つの高さ
+  HEAD_H: 82,     // 曜日見出しの高さ
+  CELL_H: 238,    // 日付マス1つの高さ（画面と同じ4:3くらいの比率になる値）
   QUALITY: 0.92,  // JPEG品質(0〜1)
   FONT: "'Hiragino Maru Gothic ProN','Hiragino Maru Gothic Pro','Hiragino Sans','Yu Gothic','Meiryo',sans-serif"
 };
 
-let exportUrl = null; // 直前に作った画像URL（作り直すときに解放する）
-
-/** ボタンから呼ばれる本体：カレンダーを描いて画像プレビューを表示 */
-function exportJpg() {
+/** カレンダーを1枚のCanvasに描いて返す（同期処理） */
+function drawCalendarCanvas_() {
   const cells = buildMonthCells();
   const W = JPG.W, PAD = JPG.PAD;
   const colW = (W - PAD * 2) / 7;
@@ -362,8 +360,48 @@ function exportJpg() {
     const r = Math.floor(i / 7), c = i % 7;
     drawJpgCell_(ctx, cells[i], PAD + c * colW, gridTop + headH + r * cellH, colW, cellH);
   }
+  return cv;
+}
 
-  showExportPreview_(cv);
+/**
+ * ボタンから呼ばれる本体。
+ * スマホ・iPadでは端末の共有シート（「画像を保存」で写真アプリに保存）を出します。
+ * 使えない環境ではプレビューを表示し、そこから保存できるようにします。
+ *
+ * ※ toDataURL は同期処理なので、タップの操作扱い（ユーザー操作）が切れず
+ *    iOS でも共有シートが開けます（toBlob だと非同期でブロックされることがある）
+ */
+function exportJpg() {
+  const name = '部活カレンダー_' + state.year + '-' + pad(state.month) + '.jpg';
+  const dataUrl = drawCalendarCanvas_().toDataURL('image/jpeg', JPG.QUALITY);
+
+  // 端末の共有シートが使えるなら、そこから「画像を保存」できる
+  try {
+    const file = new File([dataUrlToBlob_(dataUrl)], name, { type: 'image/jpeg' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file] })
+        .catch(function (err) {
+          // キャンセルされただけの場合は何も出さない
+          if (err && err.name === 'AbortError') return;
+          showExportPreview_(dataUrl, name);
+        });
+      return;
+    }
+  } catch (e) {
+    // 共有APIが使えない環境 → プレビューにフォールバック
+  }
+
+  showExportPreview_(dataUrl, name);
+}
+
+/** dataURL を Blob に変換（同期） */
+function dataUrlToBlob_(dataUrl) {
+  const parts = dataUrl.split(',');
+  const mime = /:(.*?);/.exec(parts[0])[1];
+  const bin = atob(parts[1]);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
 }
 
 /** タイトル（左：9 September ／ 右：2026） */
@@ -399,7 +437,7 @@ function drawJpgWeekHeader_(ctx, PAD, top, colW, headH) {
     ctx.strokeRect(x, top, colW, headH);
 
     ctx.fillStyle = (c === 0 || c === 6) ? '#ffffff' : '#333333';
-    ctx.font = '700 30px ' + JPG.FONT;
+    ctx.font = '700 32px ' + JPG.FONT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(labels[c], x + colW / 2, top + headH / 2);
@@ -432,11 +470,11 @@ function drawJpgCell_(ctx, cell, x, y, w, h) {
   // 日付番号（左上）
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.font = '700 30px ' + JPG.FONT;
+  ctx.font = '700 34px ' + JPG.FONT;
   ctx.fillStyle = !cell.inMonth ? '#c3cad6'
                 : (cell.holiday || cell.dow === 0) ? '#e8281e'
                 : (cell.dow === 6) ? '#2b5ed6' : '#222222';
-  ctx.fillText(String(cell.dayNum), x + 12, y + 10);
+  ctx.fillText(String(cell.dayNum), x + 14, y + 12);
 
   if (!cell.inMonth) return;
 
@@ -444,9 +482,9 @@ function drawJpgCell_(ctx, cell, x, y, w, h) {
   if (cell.note) {
     ctx.textAlign = 'right';
     ctx.fillStyle = '#e8281e';
-    ctx.font = '400 21px ' + JPG.FONT;
+    ctx.font = '400 23px ' + JPG.FONT;
     cell.note.split('\n').forEach((line, i) => {
-      ctx.fillText(line, x + w - 12, y + 12 + i * 25);
+      ctx.fillText(line, x + w - 14, y + 14 + i * 27);
     });
   }
 
@@ -471,14 +509,14 @@ function drawJpgCellBody_(ctx, b, x, y, w, h, single) {
   }
   if (!mainText && !timeText) return;
 
-  const maxW = w - 24;
+  const maxW = w - 26;
   const cx = x + w / 2;
-  const topPad = single ? 46 : 8;    // 日付番号・ノートに重ならないよう下げる
+  const topPad = single ? 54 : 8;    // 日付番号・ノートに重ならないよう下げる
   const areaY = y + topPad;
-  const areaH = h - topPad - 10;
+  const areaH = h - topPad - 12;
 
-  const mainFont = '700 34px ' + JPG.FONT;
-  const timeFont = '400 24px ' + JPG.FONT;
+  const mainFont = '700 40px ' + JPG.FONT;
+  const timeFont = '400 27px ' + JPG.FONT;
 
   ctx.font = mainFont;
   const mainLines = mainText ? wrapJpgText_(ctx, mainText, maxW) : [];
@@ -488,8 +526,8 @@ function drawJpgCellBody_(ctx, b, x, y, w, h, single) {
     if (t) wrapJpgText_(ctx, t, maxW).forEach(l => timeLines.push(l));
   });
 
-  const mainLH = 40, timeLH = 30;
-  const gap = (mainLines.length && timeLines.length) ? 8 : 0;
+  const mainLH = 47, timeLH = 34;
+  const gap = (mainLines.length && timeLines.length) ? 10 : 0;
   const totalH = mainLines.length * mainLH + gap + timeLines.length * timeLH;
   let ty = areaY + Math.max(0, (areaH - totalH) / 2);
 
@@ -526,20 +564,17 @@ function wrapJpgText_(ctx, text, maxW) {
   return lines.slice(0, 3);
 }
 
-/** 出来上がった画像をプレビュー表示（保存ボタン＋長押し保存に対応） */
-function showExportPreview_(canvas) {
-  const name = '部活カレンダー_' + state.year + '-' + pad(state.month) + '.jpg';
-  canvas.toBlob(function (blob) {
-    if (exportUrl) URL.revokeObjectURL(exportUrl);
-    exportUrl = URL.createObjectURL(blob);
-
-    document.getElementById('exportImg').src = exportUrl;
-    const a = document.getElementById('exportDownload');
-    a.href = exportUrl;
-    a.download = name;
-    document.getElementById('exportName').textContent = name;
-    document.getElementById('exportOverlay').classList.add('show');
-  }, 'image/jpeg', JPG.QUALITY);
+/**
+ * 出来上がった画像をプレビュー表示（共有シートが使えない環境用）。
+ * 画像は dataURL で表示するので、長押し →「"写真"に保存」でも保存できます。
+ */
+function showExportPreview_(dataUrl, name) {
+  document.getElementById('exportImg').src = dataUrl;
+  const a = document.getElementById('exportDownload');
+  a.href = dataUrl;
+  a.download = name;
+  document.getElementById('exportName').textContent = name;
+  document.getElementById('exportOverlay').classList.add('show');
 }
 
 /* ---------- [5] モーダル（追加・編集・削除） ---------- */
