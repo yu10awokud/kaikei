@@ -1,0 +1,31 @@
+# 依存パッケージ
+node_modules/
+/.pnp
+.pnp.js
+
+# Next.js のビルド成果物
+/.next/
+/out/
+/build
+next-env.d.ts
+
+# 環境変数（★ 秘密のキーが入るので絶対にコミットしない）
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.production.local
+
+# ログ・OS が作るゴミファイル
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+*.pem
+
+# Vercel / TypeScript
+.vercel
+*.tsbuildinfo
+
+# CSV 取り込みの入力ファイル置き場（個人データが入る想定）
+/scripts/input/
