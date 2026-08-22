@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   全体の基本スタイル
+   ・白背景 / 黒文字 / 装飾は控えめ
+   ・日本語が読みやすいシステムフォント
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  /* スマホで横スクロールが起きないようにする */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: #ffffff;
+  color: #1f1f1f;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans',
+    'Noto Sans JP', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
+  line-height: 1.7;
+}
+
+/* タップしたことが分かる程度の反応（派手なアニメーションはしない） */
+@layer components {
+  .tap {
+    @apply transition-colors duration-100 active:bg-cream-dark;
+  }
+
+  /* クリーム色の帯を敷いた見出し */
+  .section-band {
+    @apply rounded-card bg-cream px-3 py-2 text-base font-bold sm:text-lg;
+  }
+
+  .card {
+    @apply rounded-card border border-line bg-white;
+  }
+
+  .tag {
+    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs leading-tight;
+  }
+
+  .btn {
+    @apply rounded-card border border-line bg-white px-3 py-2 text-sm tap;
+  }
+
+  .btn-primary {
+    @apply rounded-card bg-ink px-4 py-2.5 text-sm font-bold text-white transition-opacity active:opacity-70 disabled:opacity-40;
+  }
+
+  .field {
+    @apply w-full rounded-card border border-line bg-white px-3 py-2.5 text-base;
+  }
+}
+
+/* iOS で入力欄をタップしたときに画面が拡大しないよう 16px 以上にする */
+select,
+input,
+textarea {
+  font-size: 16px;
+}
