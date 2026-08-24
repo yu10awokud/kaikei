@@ -12,7 +12,7 @@ import path from 'node:path';
 //   ・折りたたみ（トグル）                        ::: toggle 見出し
 //                                                  中身…
 //                                                  :::
-//   ・注釈ボックス（📌）                          ::: note タイトル
+//   ・注釈ボックス（灰色の枠）                    ::: note タイトル（絵文字は好きに含めてOK）
 //                                                  中身…
 //                                                  :::
 //   ・引用／補足ブロック（左に縦線）              > テキスト
@@ -164,9 +164,9 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<div class="my-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2.5">` +
+        `<div class="my-3 rounded-card border border-line bg-neutral-50 px-3 py-2.5">` +
           (noteStart[1]
-            ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold"><span>📌</span>${inline(noteStart[1])}</div>`
+            ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold">${inline(noteStart[1])}</div>`
             : '') +
           `<div class="text-sm">${parseLines(inner)}</div>` +
           `</div>`
