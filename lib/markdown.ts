@@ -17,6 +17,9 @@ import path from 'node:path';
 //                                                  :::
 //   ・引用／補足ブロック（左に縦線）              > テキスト
 //   ・画像                                        ![説明](/manual/xxx.png)
+//   ・表組み（スマホでは横スクロール）           | 見出し | 見出し |
+//                                                  | --- | --- |
+//                                                  | 値 | 値 |
 //   ・ファイルのダウンロードボタン                !file[表示名](/templates/xxx.xlsx)
 //   ・サイト内リンク（別ページへ）                [表示名](/path#anchor)
 // ============================================================
@@ -224,6 +227,58 @@ function parseLines(lines: string[]): string {
       closeBlocks();
       out.push(
         `<img src="${escapeHtml(image[2])}" alt="${escapeHtml(image[1])}" class="my-3 w-full rounded-card border border-line" />`
+      );
+      continue;
+    }
+
+    // 表組み（1 行目が見出し、2 行目が |---|---| の区切り）
+    //   スマホでは横スクロールできるようにする
+    if (line.startsWith('|') && line.endsWith('|')) {
+      const tableLines: string[] = [];
+      while (i < lines.length) {
+        const t = lines[i].trim();
+        if (!t.startsWith('|') || !t.endsWith('|')) break;
+        tableLines.push(t);
+        i++;
+      }
+      i--; // for 文の i++ と相殺する
+      closeBlocks();
+
+      const toCells = (row: string) =>
+        row.slice(1, -1).split('|').map((cell) => cell.trim());
+
+      const isSeparator = (row: string) => /^\|[\s:|-]+\|$/.test(row);
+
+      const header = toCells(tableLines[0]);
+      const bodyRows = tableLines
+        .slice(isSeparator(tableLines[1] ?? '') ? 2 : 1)
+        .map(toCells);
+
+      out.push(
+        '<div class="my-6 overflow-x-auto">' +
+          '<table class="w-full min-w-[520px] border-collapse text-[15px]">' +
+          '<thead><tr>' +
+          header
+            .map(
+              (cell) =>
+                `<th class="border border-line bg-cream px-3 py-2 text-left font-bold whitespace-nowrap">${inline(cell)}</th>`
+            )
+            .join('') +
+          '</tr></thead><tbody>' +
+          bodyRows
+            .map(
+              (row) =>
+                '<tr>' +
+                row
+                  .map(
+                    (cell) =>
+                      `<td class="border border-line px-3 py-2 align-top whitespace-nowrap">${inline(cell)}</td>`
+                  )
+                  .join('') +
+                '</tr>'
+            )
+            .join('') +
+          '</tbody></table></div>'
       );
       continue;
     }
