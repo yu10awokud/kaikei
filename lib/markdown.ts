@@ -3,8 +3,20 @@ import path from 'node:path';
 
 // ============================================================
 // content/*.md をビルド時（サーバー側）に読み込む
-//   外部ライブラリを使わない最小限の Markdown → HTML 変換。
-//   見出し / 箇条書き / 番号つき / 太字 / リンク / 段落に対応。
+//   外部ライブラリを使わない Markdown → HTML 変換。
+//   Notion のページに近い見た目を出すため、
+//   通常の Markdown 記法に加えて次の独自記法に対応する：
+//
+//   ・帯付き見出し（Notion の色帯タイトル）      # 見出し文
+//   ・赤字強調                                    {red}テキスト{/red}
+//   ・折りたたみ（トグル）                        ::: toggle 見出し
+//                                                  中身…
+//                                                  :::
+//   ・注釈ボックス（📌）                          ::: note タイトル
+//                                                  中身…
+//                                                  :::
+//   ・引用／補足ブロック（左に縦線）              > テキスト
+//   ・画像                                        ![説明](/manual/xxx.png)
 // ============================================================
 
 export const MANUAL_SLUGS = ['usage', 'tips', 'archive'] as const;
@@ -51,22 +63,32 @@ export function readManualMarkdown(slug: ManualSlug): string {
   }
 }
 
-/** 最小限の Markdown → HTML 変換 */
-export function markdownToHtml(md: string): string {
-  const escape = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// ------------------------------------------------------------
+// インライン記法（太字・赤字強調・コード・リンク）
+// ------------------------------------------------------------
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-  const inline = (s: string) =>
-    escape(s)
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`(.+?)`/g, '<code class="rounded bg-cream px-1 py-0.5 text-[0.9em]">$1</code>')
-      .replace(
-        /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
-        '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-700 underline">$1</a>'
-      );
+function inline(s: string): string {
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(
+      /\{red\}(.+?)\{\/red\}/g,
+      '<strong class="text-red-600">$1</strong>'
+    )
+    .replace(/`(.+?)`/g, '<code class="rounded bg-cream px-1 py-0.5 text-[0.9em]">$1</code>')
+    .replace(
+      /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-700 underline">$1</a>'
+    );
+}
 
+/** 行の配列を HTML に変換する（トグル・注釈ボックスの中身にも再帰的に使う） */
+function parseLines(lines: string[]): string {
   const out: string[] = [];
   let list: 'ul' | 'ol' | null = null;
+  let quote: string[] | null = null;
 
   const closeList = () => {
     if (list) {
@@ -75,25 +97,108 @@ export function markdownToHtml(md: string): string {
     }
   };
 
-  for (const raw of md.split(/\r?\n/)) {
-    const line = raw.trimEnd();
+  const closeQuote = () => {
+    if (quote) {
+      out.push(
+        `<div class="my-3 border-l-4 border-line bg-neutral-50 py-2 pl-3 pr-2 text-sm text-neutral-700">${quote
+          .map((q) => `<p class="leading-6">${inline(q)}</p>`)
+          .join('')}</div>`
+      );
+      quote = null;
+    }
+  };
 
-    if (!line.trim()) {
-      closeList();
+  const closeBlocks = () => {
+    closeList();
+    closeQuote();
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+
+    // ::: toggle 見出し … ::: 折りたたみブロック
+    const toggleStart = line.match(/^:::\s*toggle\s+(.*)$/);
+    if (toggleStart) {
+      closeBlocks();
+      const inner: string[] = [];
+      i++;
+      while (i < lines.length && lines[i].trim() !== ':::') {
+        inner.push(lines[i]);
+        i++;
+      }
+      out.push(
+        `<details class="my-3 rounded-card border border-line bg-neutral-50 px-3 py-2">` +
+          `<summary class="cursor-pointer text-sm font-bold">${inline(toggleStart[1])}</summary>` +
+          `<div class="mt-2 border-t border-line pt-2">${parseLines(inner)}</div>` +
+          `</details>`
+      );
       continue;
     }
 
+    // ::: note タイトル … ::: 注釈ボックス（📌）
+    const noteStart = line.match(/^:::\s*note\s*(.*)$/);
+    if (noteStart) {
+      closeBlocks();
+      const inner: string[] = [];
+      i++;
+      while (i < lines.length && lines[i].trim() !== ':::') {
+        inner.push(lines[i]);
+        i++;
+      }
+      out.push(
+        `<div class="my-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2.5">` +
+          (noteStart[1]
+            ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold"><span>📌</span>${inline(noteStart[1])}</div>`
+            : '') +
+          `<div class="text-sm">${parseLines(inner)}</div>` +
+          `</div>`
+      );
+      continue;
+    }
+
+    if (!line.trim()) {
+      closeBlocks();
+      continue;
+    }
+
+    // 見出し（# は Notion の色帯タイトルとして表示）
     const heading = line.match(/^(#{1,4})\s+(.*)$/);
     if (heading) {
-      closeList();
+      closeBlocks();
       const level = heading[1].length;
-      const size = ['text-xl', 'text-lg', 'text-base', 'text-base'][level - 1];
-      out.push(`<h${level} class="mt-6 mb-2 font-bold ${size}">${inline(heading[2])}</h${level}>`);
+      if (level === 1) {
+        out.push(
+          `<h1 class="section-band mt-8 mb-3 first:mt-0">${inline(heading[2])}</h1>`
+        );
+      } else {
+        const size = ['text-lg', 'text-base', 'text-base'][level - 2];
+        out.push(`<h${level} class="mt-6 mb-2 font-bold ${size}">${inline(heading[2])}</h${level}>`);
+      }
+      continue;
+    }
+
+    // 引用／補足（縦線つきブロック）
+    const quoteLine = line.match(/^>\s?(.*)$/);
+    if (quoteLine) {
+      closeList();
+      quote = quote ?? [];
+      quote.push(quoteLine[1]);
+      continue;
+    }
+
+    // 画像
+    const image = line.match(/^!\[(.*?)\]\((\S+)\)$/);
+    if (image) {
+      closeBlocks();
+      out.push(
+        `<img src="${escapeHtml(image[2])}" alt="${escapeHtml(image[1])}" class="my-3 w-full rounded-card border border-line" />`
+      );
       continue;
     }
 
     const ul = line.match(/^[-*]\s+(.*)$/);
     if (ul) {
+      closeQuote();
       if (list !== 'ul') {
         closeList();
         out.push('<ul class="my-2 list-disc space-y-1 pl-5">');
@@ -105,6 +210,7 @@ export function markdownToHtml(md: string): string {
 
     const ol = line.match(/^\d+\.\s+(.*)$/);
     if (ol) {
+      closeQuote();
       if (list !== 'ol') {
         closeList();
         out.push('<ol class="my-2 list-decimal space-y-1 pl-5">');
@@ -115,15 +221,20 @@ export function markdownToHtml(md: string): string {
     }
 
     if (/^(-{3,}|_{3,})$/.test(line)) {
-      closeList();
+      closeBlocks();
       out.push('<hr class="my-6 border-line" />');
       continue;
     }
 
-    closeList();
+    closeBlocks();
     out.push(`<p class="my-2 leading-7">${inline(line)}</p>`);
   }
 
-  closeList();
+  closeBlocks();
   return out.join('\n');
+}
+
+/** Markdown（＋独自記法）→ HTML 変換 */
+export function markdownToHtml(md: string): string {
+  return parseLines(md.split(/\r?\n/));
 }
