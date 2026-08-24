@@ -75,6 +75,12 @@ export function toMessage(error: { message?: string } | null): string {
   if (raw.includes('assignments_date_slot_key')) {
     return 'その日のその枠には、すでに登録があります。画面を再読み込みしてから操作してください。';
   }
+  if (raw.includes('Invalid path specified in request URL')) {
+    return 'Supabase の接続先URLが正しくありません。NEXT_PUBLIC_SUPABASE_URL が「https://〇〇.supabase.co」の形（末尾にスラッシュや余計なパスを付けない）になっているか確認してください。';
+  }
+  if (raw.includes('Invalid API key') || raw.includes('JWSError')) {
+    return 'Supabase のキーが正しくありません。SUPABASE_SERVICE_ROLE_KEY を確認してください。';
+  }
   if (raw.includes('members_name_key')) return '同じ名前の部員がすでに登録されています。';
   if (raw.includes('places_name_key')) return '同じ名前の練習場所がすでに登録されています。';
   return raw;
