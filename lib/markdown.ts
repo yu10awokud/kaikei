@@ -125,7 +125,7 @@ function parseLines(lines: string[]): string {
   const closeQuote = () => {
     if (quote) {
       out.push(
-        `<div class="my-4 border-l-4 border-line bg-neutral-50 py-2.5 pl-3.5 pr-2 text-sm text-neutral-700">${quote
+        `<div class="my-5 border-l-4 border-line bg-neutral-50 py-3 pl-4 pr-2 text-sm text-neutral-700">${quote
           .map((q) => `<p class="leading-6">${inline(q)}</p>`)
           .join('')}</div>`
       );
@@ -152,7 +152,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<details class="my-4 rounded-card border border-line bg-neutral-50 px-3.5 py-2.5">` +
+        `<details class="my-5 rounded-card border border-line bg-neutral-50 px-3.5 py-2.5">` +
           `<summary class="cursor-pointer text-sm font-bold">${inline(toggleStart[1])}</summary>` +
           `<div class="mt-2 border-t border-line pt-2">${parseLines(inner)}</div>` +
           `</details>`
@@ -171,7 +171,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<div class="my-4 rounded-card border border-line bg-neutral-50 px-3.5 py-3">` +
+        `<div class="my-5 rounded-card border border-line bg-neutral-50 px-3.5 py-3">` +
           (noteStart[1]
             ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold">${inline(noteStart[1])}</div>`
             : '') +
@@ -246,7 +246,7 @@ function parseLines(lines: string[]): string {
       closeQuote();
       if (list !== 'ul') {
         closeList();
-        out.push('<ul class="my-2.5 list-disc space-y-1.5 pl-5">');
+        out.push('<ul class="my-3 list-disc space-y-2 pl-5">');
         list = 'ul';
       }
       out.push(`<li>${inline(ul[1])}</li>`);
@@ -258,7 +258,7 @@ function parseLines(lines: string[]): string {
       closeQuote();
       if (list !== 'ol') {
         closeList();
-        out.push('<ol class="my-2.5 list-decimal space-y-1.5 pl-5">');
+        out.push('<ol class="my-3 list-decimal space-y-2 pl-5">');
         list = 'ol';
       }
       out.push(`<li>${inline(ol[1])}</li>`);
@@ -272,7 +272,7 @@ function parseLines(lines: string[]): string {
     }
 
     closeBlocks();
-    out.push(`<p class="my-2.5 leading-7">${inline(line)}</p>`);
+    out.push(`<p class="my-3 leading-7">${inline(line)}</p>`);
   }
 
   closeBlocks();
