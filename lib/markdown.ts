@@ -125,7 +125,7 @@ function parseLines(lines: string[]): string {
   const closeQuote = () => {
     if (quote) {
       out.push(
-        `<div class="my-5 border-l-4 border-line bg-neutral-50 py-3 pl-4 pr-2 text-sm text-neutral-700">${quote
+        `<div class="my-6 border-l-4 border-line bg-neutral-50 py-3.5 pl-5 pr-3 text-[15px] text-neutral-700">${quote
           .map((q) => `<p class="leading-6">${inline(q)}</p>`)
           .join('')}</div>`
       );
@@ -152,7 +152,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<details class="my-5 rounded-card border border-line bg-neutral-50 px-3.5 py-2.5">` +
+        `<details class="my-6 rounded-card border border-line bg-neutral-50 px-4 py-3">` +
           `<summary class="cursor-pointer text-sm font-bold">${inline(toggleStart[1])}</summary>` +
           `<div class="mt-2 border-t border-line pt-2">${parseLines(inner)}</div>` +
           `</details>`
@@ -171,7 +171,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<div class="my-5 rounded-card border border-line bg-neutral-50 px-3.5 py-3">` +
+        `<div class="my-6 rounded-card border border-line bg-neutral-50 px-4 py-3.5">` +
           (noteStart[1]
             ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold">${inline(noteStart[1])}</div>`
             : '') +
@@ -194,16 +194,16 @@ function parseLines(lines: string[]): string {
       const id = slugify(heading[2]);
       if (level === 1) {
         out.push(
-          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-4 py-3.5 text-xl font-bold sm:text-2xl mt-14 mb-4 first:mt-0">${inline(heading[2])}</h1>`
+          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-5 py-4 text-2xl font-bold sm:text-3xl mt-16 mb-5 first:mt-0">${inline(heading[2])}</h1>`
         );
       } else if (level === 2) {
         out.push(
-          `<h2 id="${id}" class="scroll-mt-4 mt-9 mb-3 text-lg font-bold underline decoration-2 underline-offset-4 sm:text-xl">${inline(heading[2])}</h2>`
+          `<h2 id="${id}" class="scroll-mt-4 mt-11 mb-3.5 text-xl font-bold underline decoration-[3px] underline-offset-[6px] sm:text-2xl">${inline(heading[2])}</h2>`
         );
       } else {
-        const size = level === 3 ? 'text-base' : 'text-sm';
+        const size = level === 3 ? 'text-lg' : 'text-base';
         out.push(
-          `<h${level} id="${id}" class="scroll-mt-4 mt-5 mb-2 font-bold ${size}">${inline(heading[2])}</h${level}>`
+          `<h${level} id="${id}" class="scroll-mt-4 mt-7 mb-2.5 font-bold ${size}">${inline(heading[2])}</h${level}>`
         );
       }
       continue;
@@ -246,7 +246,7 @@ function parseLines(lines: string[]): string {
       closeQuote();
       if (list !== 'ul') {
         closeList();
-        out.push('<ul class="my-3 list-disc space-y-2 pl-5">');
+        out.push('<ul class="my-3.5 list-disc space-y-2.5 pl-6 text-[17px] leading-8">');
         list = 'ul';
       }
       out.push(`<li>${inline(ul[1])}</li>`);
@@ -258,7 +258,7 @@ function parseLines(lines: string[]): string {
       closeQuote();
       if (list !== 'ol') {
         closeList();
-        out.push('<ol class="my-3 list-decimal space-y-2 pl-5">');
+        out.push('<ol class="my-3.5 list-decimal space-y-2.5 pl-6 text-[17px] leading-8">');
         list = 'ol';
       }
       out.push(`<li>${inline(ol[1])}</li>`);
@@ -267,12 +267,12 @@ function parseLines(lines: string[]): string {
 
     if (/^(-{3,}|_{3,})$/.test(line)) {
       closeBlocks();
-      out.push('<hr class="my-6 border-line" />');
+      out.push('<hr class="my-8 border-line" />');
       continue;
     }
 
     closeBlocks();
-    out.push(`<p class="my-3 leading-7">${inline(line)}</p>`);
+    out.push(`<p class="my-3.5 text-[17px] leading-8">${inline(line)}</p>`);
   }
 
   closeBlocks();
