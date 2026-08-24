@@ -1,5 +1,5 @@
 import SectionHeader from '@/components/SectionHeader';
-import { LATEST_TEMPLATE, PAST_TEMPLATES } from '@/data/template';
+import { LATEST_TEMPLATE } from '@/data/template';
 
 // ① テンプレート：Excel ファイルをそのままダウンロードさせる
 export default function TemplateSection() {
@@ -25,19 +25,6 @@ export default function TemplateSection() {
         <p className="mt-3 text-xs text-neutral-600">
           {LATEST_TEMPLATE.date}　｜　{LATEST_TEMPLATE.version}　｜　{LATEST_TEMPLATE.note}
         </p>
-
-        {PAST_TEMPLATES.length > 0 && (
-          <details className="mt-3 border-t border-line pt-3">
-            <summary className="cursor-pointer text-xs text-neutral-500">更新履歴を見る</summary>
-            <ul className="mt-2 space-y-1.5">
-              {PAST_TEMPLATES.map((t) => (
-                <li key={`${t.version}-${t.date}`} className="text-xs text-neutral-600">
-                  {t.date}　｜　{t.version}　｜　{t.note}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
       </div>
     </section>
   );

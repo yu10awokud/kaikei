@@ -25,24 +25,7 @@ export const TEMPLATE_VERSIONS: TemplateVersion[] = [
     version: 'Ver.8.3',
     note: 'マネ欄に記号Ⓗを追加',
   },
-  {
-    fileName: 'kpumswim_template.xlsx',
-    size: '20.1 KB',
-    date: '25.06.02',
-    version: 'Ver.8.2',
-    note: '距離の合計欄を自動計算に変更',
-  },
-  {
-    fileName: 'kpumswim_template.xlsx',
-    size: '19.8 KB',
-    date: '25.04.10',
-    version: 'Ver.8.1',
-    note: '印刷範囲をA4横1ページに調整',
-  },
 ];
 
 /** 最新版（メイン表示に使う） */
 export const LATEST_TEMPLATE = TEMPLATE_VERSIONS[0];
-
-/** 過去版（更新履歴に使う） */
-export const PAST_TEMPLATES = TEMPLATE_VERSIONS.slice(1);
