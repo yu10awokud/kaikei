@@ -70,6 +70,18 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * 見出しの文字列から、ジャンプ先に使う id を作る。
+ *   例：「0. メニュー担当」→「0-メニュー担当」
+ *   目次のリンク（[0. メニュー担当](#0-メニュー担当)）と対応させて使う。
+ */
+export function slugify(text: string): string {
+  return text
+    .trim()
+    .replace(/[.:：、，,！？!?「」『』（）()\[\]［］]/g, '')
+    .replace(/\s+/g, '-');
+}
+
 function inline(s: string): string {
   return escapeHtml(s)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -78,6 +90,12 @@ function inline(s: string): string {
       '<strong class="text-red-600">$1</strong>'
     )
     .replace(/`(.+?)`/g, '<code class="rounded bg-cream px-1 py-0.5 text-[0.9em]">$1</code>')
+    // 同じページ内の見出しへのジャンプリンク（#で始まる）
+    .replace(
+      /\[(.+?)\]\((#[^\s)]+)\)/g,
+      '<a href="$2" class="text-blue-700 underline">$1</a>'
+    )
+    // 外部リンクは新しいタブで開く
     .replace(
       /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
       '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-700 underline">$1</a>'
@@ -166,13 +184,20 @@ function parseLines(lines: string[]): string {
     if (heading) {
       closeBlocks();
       const level = heading[1].length;
+      const id = slugify(heading[2]);
       if (level === 1) {
         out.push(
-          `<h1 class="section-band mt-8 mb-3 first:mt-0">${inline(heading[2])}</h1>`
+          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-3 py-3 text-lg font-bold sm:text-xl mt-10 mb-3 first:mt-0">${inline(heading[2])}</h1>`
+        );
+      } else if (level === 2) {
+        out.push(
+          `<h2 id="${id}" class="scroll-mt-4 mt-7 mb-2 text-base font-bold underline decoration-2 underline-offset-4 sm:text-lg">${inline(heading[2])}</h2>`
         );
       } else {
-        const size = ['text-lg', 'text-base', 'text-base'][level - 2];
-        out.push(`<h${level} class="mt-6 mb-2 font-bold ${size}">${inline(heading[2])}</h${level}>`);
+        const size = level === 3 ? 'text-base' : 'text-sm';
+        out.push(
+          `<h${level} id="${id}" class="scroll-mt-4 mt-5 mb-2 font-bold ${size}">${inline(heading[2])}</h${level}>`
+        );
       }
       continue;
     }
