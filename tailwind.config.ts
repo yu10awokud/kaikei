@@ -5,6 +5,9 @@ const config: Config = {
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
     './data/**/*.{ts,tsx}',
+    // ★ lib/markdown.ts の中でマニュアル本文の class 名を組み立てているため、
+    //    ここを含めないと余白や文字サイズの指定が CSS に出力されない
+    './lib/**/*.{ts,tsx}',
   ],
   theme: {
     extend: {
