@@ -17,6 +17,8 @@ import path from 'node:path';
 //                                                  :::
 //   ・引用／補足ブロック（左に縦線）              > テキスト
 //   ・画像                                        ![説明](/manual/xxx.png)
+//   ・ファイルのダウンロードボタン                !file[表示名](/templates/xxx.xlsx)
+//   ・サイト内リンク（別ページへ）                [表示名](/path#anchor)
 // ============================================================
 
 export const MANUAL_SLUGS = ['usage', 'tips', 'archive'] as const;
@@ -95,6 +97,11 @@ function inline(s: string): string {
       /\[(.+?)\]\((#[^\s)]+)\)/g,
       '<a href="$2" class="text-blue-700 underline">$1</a>'
     )
+    // サイト内の別ページへのリンク（/ で始まる。例：/#duty）
+    .replace(
+      /\[(.+?)\]\((\/[^\s)]+)\)/g,
+      '<a href="$2" class="text-blue-700 underline">$1</a>'
+    )
     // 外部リンクは新しいタブで開く
     .replace(
       /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
@@ -118,7 +125,7 @@ function parseLines(lines: string[]): string {
   const closeQuote = () => {
     if (quote) {
       out.push(
-        `<div class="my-3 border-l-4 border-line bg-neutral-50 py-2 pl-3 pr-2 text-sm text-neutral-700">${quote
+        `<div class="my-4 border-l-4 border-line bg-neutral-50 py-2.5 pl-3.5 pr-2 text-sm text-neutral-700">${quote
           .map((q) => `<p class="leading-6">${inline(q)}</p>`)
           .join('')}</div>`
       );
@@ -145,7 +152,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<details class="my-3 rounded-card border border-line bg-neutral-50 px-3 py-2">` +
+        `<details class="my-4 rounded-card border border-line bg-neutral-50 px-3.5 py-2.5">` +
           `<summary class="cursor-pointer text-sm font-bold">${inline(toggleStart[1])}</summary>` +
           `<div class="mt-2 border-t border-line pt-2">${parseLines(inner)}</div>` +
           `</details>`
@@ -164,7 +171,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<div class="my-3 rounded-card border border-line bg-neutral-50 px-3 py-2.5">` +
+        `<div class="my-4 rounded-card border border-line bg-neutral-50 px-3.5 py-3">` +
           (noteStart[1]
             ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold">${inline(noteStart[1])}</div>`
             : '') +
@@ -187,11 +194,11 @@ function parseLines(lines: string[]): string {
       const id = slugify(heading[2]);
       if (level === 1) {
         out.push(
-          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-3 py-3 text-lg font-bold sm:text-xl mt-10 mb-3 first:mt-0">${inline(heading[2])}</h1>`
+          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-4 py-3.5 text-xl font-bold sm:text-2xl mt-14 mb-4 first:mt-0">${inline(heading[2])}</h1>`
         );
       } else if (level === 2) {
         out.push(
-          `<h2 id="${id}" class="scroll-mt-4 mt-7 mb-2 text-base font-bold underline decoration-2 underline-offset-4 sm:text-lg">${inline(heading[2])}</h2>`
+          `<h2 id="${id}" class="scroll-mt-4 mt-9 mb-3 text-lg font-bold underline decoration-2 underline-offset-4 sm:text-xl">${inline(heading[2])}</h2>`
         );
       } else {
         const size = level === 3 ? 'text-base' : 'text-sm';
@@ -221,12 +228,25 @@ function parseLines(lines: string[]): string {
       continue;
     }
 
+    // ファイルのダウンロードボタン　　!file[表示名](/templates/xxx.xlsx)
+    const file = line.match(/^!file\[(.*?)\]\((\S+)\)$/);
+    if (file) {
+      closeBlocks();
+      out.push(
+        `<a href="${escapeHtml(file[2])}" download class="tap my-3 flex items-center justify-between gap-3 rounded-card border border-line bg-emerald-50 px-3 py-3 text-sm font-bold">` +
+          `<span>${inline(file[1])}</span>` +
+          `<span class="shrink-0 rounded-card bg-ink px-3 py-1.5 text-xs font-bold text-white">ダウンロード</span>` +
+          `</a>`
+      );
+      continue;
+    }
+
     const ul = line.match(/^[-*]\s+(.*)$/);
     if (ul) {
       closeQuote();
       if (list !== 'ul') {
         closeList();
-        out.push('<ul class="my-2 list-disc space-y-1 pl-5">');
+        out.push('<ul class="my-2.5 list-disc space-y-1.5 pl-5">');
         list = 'ul';
       }
       out.push(`<li>${inline(ul[1])}</li>`);
@@ -238,7 +258,7 @@ function parseLines(lines: string[]): string {
       closeQuote();
       if (list !== 'ol') {
         closeList();
-        out.push('<ol class="my-2 list-decimal space-y-1 pl-5">');
+        out.push('<ol class="my-2.5 list-decimal space-y-1.5 pl-5">');
         list = 'ol';
       }
       out.push(`<li>${inline(ol[1])}</li>`);
@@ -252,7 +272,7 @@ function parseLines(lines: string[]): string {
     }
 
     closeBlocks();
-    out.push(`<p class="my-2 leading-7">${inline(line)}</p>`);
+    out.push(`<p class="my-2.5 leading-7">${inline(line)}</p>`);
   }
 
   closeBlocks();
