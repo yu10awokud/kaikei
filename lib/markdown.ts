@@ -226,7 +226,7 @@ function parseLines(lines: string[]): string {
     if (image) {
       closeBlocks();
       out.push(
-        `<img src="${escapeHtml(image[2])}" alt="${escapeHtml(image[1])}" class="my-3 w-full rounded-card border border-line" />`
+        `<img src="${escapeHtml(image[2])}" alt="${escapeHtml(image[1])}" loading="lazy" class="my-4 mx-auto block max-h-[75vh] w-auto max-w-full rounded-card border border-line" />`
       );
       continue;
     }
