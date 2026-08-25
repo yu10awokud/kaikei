@@ -33,9 +33,9 @@ export default function RatioChart({
 
   return (
     <div className="space-y-4">
-      <div className="card px-3 py-4">
+      <div className="card px-3 py-5">
         {data.length === 0 ? (
-          <p className="py-10 text-center text-sm text-neutral-500">
+          <p className="py-10 text-center text-sm text-ink-faint">
             このシーズンの担当実績はまだありません。
           </p>
         ) : (
@@ -54,7 +54,7 @@ export default function RatioChart({
                     strokeWidth={1}
                     isAnimationActive={false}
                     // スマホでは引き出し線とラベルを消して、下の凡例で読ませる
-                    labelLine={wide ? { stroke: '#C9C4B8' } : false}
+                    labelLine={wide ? { stroke: '#C9D2DA' } : false}
                     label={
                       wide
                         ? ({ name, count, percent }: { name?: string; count?: number; percent?: number }) =>
@@ -71,8 +71,8 @@ export default function RatioChart({
 
               {/* 中央の合計表示 */}
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <div className="text-3xl font-bold leading-none sm:text-4xl">{current.total}</div>
-                <div className="mt-1 text-[11px] tracking-widest text-neutral-400">Total</div>
+                <div className="font-en text-4xl font-semibold leading-none tracking-tight sm:text-5xl">{current.total}</div>
+                <div className="font-en mt-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-ink-faint">Total</div>
               </div>
             </div>
 
@@ -95,9 +95,9 @@ export default function RatioChart({
           </>
         )}
 
-        <p className="mt-4 text-center text-sm font-bold">{current.label}</p>
+        <p className="font-en mt-5 text-center text-sm font-semibold text-ink-soft">{current.label}</p>
         {current.unassigned > 0 && (
-          <p className="mt-1 text-center text-xs text-neutral-500">
+          <p className="mt-1 text-center text-xs text-ink-faint">
             未割り当て：{current.unassigned}日
           </p>
         )}
@@ -109,7 +109,7 @@ export default function RatioChart({
       {/* 過去シーズン */}
       {past.length > 0 && (
         <div className="space-y-2">
-          <h3 className="px-1 text-sm font-bold text-neutral-600">過去シーズン</h3>
+          <h3 className="px-1 text-[13px] font-bold text-ink-soft">過去シーズン</h3>
           {past.map((s) => (
             <details key={s.season} className="card overflow-hidden">
               <summary className="cursor-pointer px-3 py-2.5 text-sm font-bold tap">
@@ -117,12 +117,12 @@ export default function RatioChart({
               </summary>
               <div className="border-t border-line p-3">
                 {s.rows.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-neutral-500">担当実績はありません。</p>
+                  <p className="py-4 text-center text-xs text-ink-faint">担当実績はありません。</p>
                 ) : (
                   <RatioTable summary={s} bare />
                 )}
                 {s.unassigned > 0 && (
-                  <p className="mt-2 text-xs text-neutral-500">未割り当て：{s.unassigned}日</p>
+                  <p className="mt-2 text-xs text-ink-faint">未割り当て：{s.unassigned}日</p>
                 )}
               </div>
             </details>
@@ -138,7 +138,7 @@ function RatioTable({ summary, bare = false }: { summary: SeasonSummary; bare?: 
     <div className={bare ? '' : 'card overflow-hidden'}>
       <table className="w-full text-sm">
         <thead>
-          <tr className="bg-cream text-left text-xs text-neutral-600">
+          <tr className="bg-line-soft text-left text-[11px] font-medium text-ink-soft">
             <th className="px-3 py-2 font-bold">名前</th>
             <th className="px-3 py-2 text-right font-bold">回数</th>
             <th className="px-3 py-2 text-right font-bold">割合</th>
@@ -156,15 +156,15 @@ function RatioTable({ summary, bare = false }: { summary: SeasonSummary; bare?: 
                   {r.name}
                 </span>
               </td>
-              <td className="px-3 py-2 text-right tabular-nums">{r.count}</td>
-              <td className="px-3 py-2 text-right tabular-nums text-neutral-600">{r.percent}%</td>
+              <td className="font-en px-3 py-2 text-right font-semibold tabular-nums">{r.count}</td>
+              <td className="font-en px-3 py-2 text-right tabular-nums text-ink-faint">{r.percent}%</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t border-line bg-neutral-50 text-xs">
+          <tr className="border-t border-line bg-line-soft text-xs">
             <td className="px-3 py-2 font-bold">合計</td>
-            <td className="px-3 py-2 text-right font-bold tabular-nums">{summary.total}</td>
+            <td className="font-en px-3 py-2 text-right font-bold tabular-nums">{summary.total}</td>
             <td className="px-3 py-2" />
           </tr>
         </tfoot>

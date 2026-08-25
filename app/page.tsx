@@ -12,31 +12,33 @@ export default async function HomePage() {
   const { members, places, assignments, configured, error } = await fetchInitialData();
 
   return (
-    <main className="space-y-10">
+    <main className="space-y-12">
       <header className="pb-1">
-        <h1 className="text-2xl font-bold tracking-tight">メニュー特戦隊</h1>
-        <p className="mt-1 text-xs tracking-wide text-neutral-500">KPUM SWIM TEAM MENU PAGE</p>
+        <h1 className="text-[26px] font-bold tracking-tight text-ink sm:text-3xl">メニュー特戦隊</h1>
+        <p className="font-en mt-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-faint">
+          KPUM Swim Team Menu Page
+        </p>
       </header>
 
       {error && (
-        <p className="rounded-card border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+        <p className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
           データの読み込みでエラーが発生しました：{error}
         </p>
       )}
 
-      <TemplateSection />
-      <ManualCards />
       <DutySection
         initialAssignments={assignments}
         members={members}
         places={places}
         configured={configured}
       />
+      <TemplateSection />
+      <ManualCards />
       <LinksSection />
 
       {/* 管理画面へは目立たないリンクで */}
-      <footer className="border-t border-line pt-4 text-center">
-        <Link href="/admin" className="text-[11px] text-neutral-400 underline">
+      <footer className="border-t border-line pt-5 text-center">
+        <Link href="/admin" className="text-[11px] text-ink-faint underline underline-offset-2">
           管理画面
         </Link>
       </footer>

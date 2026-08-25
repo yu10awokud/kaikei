@@ -75,7 +75,7 @@ export default function MasterAdmin({
   return (
     <div className="space-y-3">
       {error && (
-        <p className="rounded-card border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        <p className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
       )}
 
       <ul className="space-y-2">
@@ -86,7 +86,7 @@ export default function MasterAdmin({
                 type="color"
                 value={item.color}
                 onChange={(e) => handlePatch(item.id, { color: e.target.value })}
-                className="h-9 w-9 shrink-0 cursor-pointer rounded border border-line bg-white"
+                className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-line bg-white"
                 aria-label={`${item.name} の色`}
               />
               <input
@@ -112,9 +112,9 @@ export default function MasterAdmin({
                 type="checkbox"
                 checked={item.is_active}
                 onChange={(e) => handlePatch(item.id, { is_active: e.target.checked })}
-                className="h-4 w-4 accent-neutral-800"
+                className="h-4 w-4 accent-aqua-600"
               />
-              <span className={item.is_active ? '' : 'text-neutral-400'}>{activeLabel}</span>
+              <span className={item.is_active ? '' : 'text-ink-faint'}>{activeLabel}</span>
             </label>
 
             {/* 練習場所だけ：オフ（練習なし）として扱うかどうか */}
@@ -124,11 +124,11 @@ export default function MasterAdmin({
                   type="checkbox"
                   checked={Boolean((item as Place).is_off)}
                   onChange={(e) => handlePatch(item.id, { is_off: e.target.checked })}
-                  className="h-4 w-4 accent-neutral-800"
+                  className="h-4 w-4 accent-aqua-600"
                 />
-                <span className="text-neutral-600">
+                <span className="text-ink-soft">
                   オフ（練習なし）として扱う
-                  <span className="block text-xs text-neutral-400">
+                  <span className="block text-xs text-ink-faint">
                     担当者欄を出さずに、カレンダーに灰色で表示します
                   </span>
                 </span>
@@ -145,7 +145,7 @@ export default function MasterAdmin({
             type="color"
             value={newColor}
             onChange={(e) => setNewColor(e.target.value)}
-            className="h-9 w-9 shrink-0 cursor-pointer rounded border border-line bg-white"
+            className="h-9 w-9 shrink-0 cursor-pointer rounded-lg border border-line bg-white"
             aria-label="色"
           />
           <input

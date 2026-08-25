@@ -2,29 +2,39 @@ import Link from 'next/link';
 import SectionHeader from '@/components/SectionHeader';
 import { MANUAL_META, MANUAL_SLUGS } from '@/lib/markdown';
 
-// ② マニュアル：3 枚のカードをグリッド表示（スマホ 2 列 / PC 3 列）
+// ② マニュアル：3 枚のカードを並べる（スマホ 1 列 / PC 3 列）
 export default function ManualCards() {
   return (
     <section id="manual">
-      <SectionHeader emoji="📚" title="マニュアル" />
+      <SectionHeader title="マニュアル" en="Manual" />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {MANUAL_SLUGS.map((slug) => {
           const meta = MANUAL_META[slug];
           return (
             <Link
               key={slug}
               href={`/manual/${slug}`}
-              className="card overflow-hidden tap"
+              className="card flex items-center gap-3 p-4 tap sm:flex-col sm:items-start sm:gap-0"
             >
-              {/* 上部：CSS グラデーションのカバー領域 */}
-              <div className="h-20 w-full sm:h-24" style={{ background: meta.gradient }} />
-              {/* 下部：アイコンとタイトル */}
-              <div className="px-3 py-2.5">
-                <div className="text-lg leading-none">{meta.icon}</div>
-                <div className="mt-1 text-sm font-bold">{meta.title}</div>
-                <div className="text-xs text-neutral-500">{meta.subtitle}</div>
-              </div>
+              {/* 小さな丸いアイコン（大きなグラデーション帯はやめる） */}
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base sm:mb-3"
+                style={{ backgroundColor: meta.tint }}
+              >
+                {meta.icon}
+              </span>
+
+              <span className="min-w-0">
+                <span className="font-en block text-sm font-semibold lowercase tracking-wide text-ink">
+                  {meta.title}
+                </span>
+                <span className="mt-0.5 block text-[11px] text-ink-faint">{meta.subtitle}</span>
+              </span>
+
+              <span aria-hidden className="ml-auto text-ink-faint sm:hidden">
+                ›
+              </span>
             </Link>
           );
         })}

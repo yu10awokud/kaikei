@@ -29,28 +29,25 @@ export type ManualSlug = (typeof MANUAL_SLUGS)[number];
 
 export const MANUAL_META: Record<
   ManualSlug,
-  { title: string; subtitle: string; icon: string; gradient: string }
+  { title: string; subtitle: string; icon: string; tint: string }
 > = {
   usage: {
     title: 'usage',
     subtitle: '使い方',
     icon: '📘',
-    // 赤系
-    gradient: 'linear-gradient(135deg, #E4572E 0%, #F2A08C 100%)',
+    tint: '#DDEDF8', // 薄いブルー
   },
   tips: {
     title: 'tips',
     subtitle: 'コツ・小技',
     icon: '💡',
-    // 青緑系
-    gradient: 'linear-gradient(135deg, #17796F 0%, #7FD8CB 100%)',
+    tint: '#DFF1EC', // 薄い青緑
   },
   archive: {
     title: 'archive',
     subtitle: '過去の資料',
     icon: '🗂️',
-    // 薄いオレンジ系
-    gradient: 'linear-gradient(135deg, #F5C77E 0%, #FDF0D5 100%)',
+    tint: '#F0EEE9', // 薄いグレージュ
   },
 };
 
@@ -92,23 +89,23 @@ function inline(s: string): string {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(
       /\{red\}(.+?)\{\/red\}/g,
-      '<strong class="text-red-600">$1</strong>'
+      '<strong class="text-rose-600">$1</strong>'
     )
-    .replace(/`(.+?)`/g, '<code class="rounded bg-cream px-1 py-0.5 text-[0.9em]">$1</code>')
+    .replace(/`(.+?)`/g, '<code class="rounded bg-line-soft px-1 py-0.5 text-[0.9em]">$1</code>')
     // 同じページ内の見出しへのジャンプリンク（#で始まる）
     .replace(
       /\[(.+?)\]\((#[^\s)]+)\)/g,
-      '<a href="$2" class="text-blue-700 underline">$1</a>'
+      '<a href="$2" class="text-aqua-600 underline underline-offset-2">$1</a>'
     )
     // サイト内の別ページへのリンク（/ で始まる。例：/#duty）
     .replace(
       /\[(.+?)\]\((\/[^\s)]+)\)/g,
-      '<a href="$2" class="text-blue-700 underline">$1</a>'
+      '<a href="$2" class="text-aqua-600 underline underline-offset-2">$1</a>'
     )
     // 外部リンクは新しいタブで開く
     .replace(
       /\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-blue-700 underline">$1</a>'
+      '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-aqua-600 underline underline-offset-2">$1</a>'
     );
 }
 
@@ -128,7 +125,7 @@ function parseLines(lines: string[]): string {
   const closeQuote = () => {
     if (quote) {
       out.push(
-        `<div class="my-6 border-l-4 border-line bg-neutral-50 py-3.5 pl-5 pr-3 text-[15px] text-neutral-700">${quote
+        `<div class="my-6 border-l-[3px] border-line bg-line-soft/60 py-3.5 pl-5 pr-3 text-[15px] text-ink-soft">${quote
           .map((q) => `<p class="leading-6">${inline(q)}</p>`)
           .join('')}</div>`
       );
@@ -155,7 +152,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<details class="my-6 rounded-card border border-line bg-neutral-50 px-4 py-3">` +
+        `<details class="my-6 rounded-card border border-line bg-line-soft/60 px-4 py-3">` +
           `<summary class="cursor-pointer text-sm font-bold">${inline(toggleStart[1])}</summary>` +
           `<div class="mt-2 border-t border-line pt-2">${parseLines(inner)}</div>` +
           `</details>`
@@ -174,7 +171,7 @@ function parseLines(lines: string[]): string {
         i++;
       }
       out.push(
-        `<div class="my-6 rounded-card border border-line bg-neutral-50 px-4 py-3.5">` +
+        `<div class="my-6 rounded-card border border-line bg-line-soft/60 px-4 py-3.5">` +
           (noteStart[1]
             ? `<div class="mb-1 flex items-center gap-1.5 text-sm font-bold">${inline(noteStart[1])}</div>`
             : '') +
@@ -197,7 +194,7 @@ function parseLines(lines: string[]): string {
       const id = slugify(heading[2]);
       if (level === 1) {
         out.push(
-          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-cream px-5 py-4 text-2xl font-bold sm:text-3xl mt-16 mb-5 first:mt-0">${inline(heading[2])}</h1>`
+          `<h1 id="${id}" class="scroll-mt-4 rounded-card bg-aqua-50 px-5 py-4 text-2xl font-bold sm:text-3xl mt-16 mb-5 first:mt-0">${inline(heading[2])}</h1>`
         );
       } else if (level === 2) {
         out.push(
@@ -261,7 +258,7 @@ function parseLines(lines: string[]): string {
           header
             .map(
               (cell) =>
-                `<th class="border border-line bg-cream px-3 py-2 text-left font-bold whitespace-nowrap">${inline(cell)}</th>`
+                `<th class="border border-line bg-line-soft px-3 py-2 text-left font-bold whitespace-nowrap">${inline(cell)}</th>`
             )
             .join('') +
           '</tr></thead><tbody>' +

@@ -18,16 +18,25 @@ export default async function ManualPage({ params }: { params: Promise<{ slug: s
 
   return (
     <main>
-      <Link href="/" className="text-sm text-neutral-500 underline">
+      <Link
+        href="/"
+        className="text-[13px] font-medium text-ink-faint underline underline-offset-2"
+      >
         ← トップに戻る
       </Link>
 
-      <div className="mt-4 overflow-hidden rounded-card border border-line">
-        <div className="h-24 w-full sm:h-32" style={{ background: meta.gradient }} />
-        <div className="px-4 py-3">
-          <div className="text-xl leading-none">{meta.icon}</div>
-          <h1 className="mt-1.5 text-xl font-bold">{meta.title}</h1>
-          <p className="text-xs text-neutral-500">{meta.subtitle}</p>
+      <div className="mt-5 flex items-center gap-3 border-b border-line pb-5">
+        <span
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg"
+          style={{ backgroundColor: meta.tint }}
+        >
+          {meta.icon}
+        </span>
+        <div>
+          <h1 className="font-en text-2xl font-semibold lowercase tracking-tight text-ink">
+            {meta.title}
+          </h1>
+          <p className="text-xs text-ink-faint">{meta.subtitle}</p>
         </div>
       </div>
 

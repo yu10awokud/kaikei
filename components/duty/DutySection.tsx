@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import SectionHeader from '@/components/SectionHeader';
 import AssignmentSheet from '@/components/duty/AssignmentSheet';
 import MonthCalendar from '@/components/duty/MonthCalendar';
+import UpcomingList from '@/components/duty/UpcomingList';
 import RatioChart from '@/components/duty/RatioChart';
 import { addMonths, formatMonthTitle } from '@/lib/date';
 import { getCurrentSeasonKey } from '@/lib/season';
@@ -120,7 +121,11 @@ export default function DutySection({
             </div>
           </div>
 
-          <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
+          {/* カレンダーを主役に。PC では右に、スマホでは下に直近1週間を出す */}
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
+            <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
+            <UpcomingList byDate={byDate} onSelectDate={setOpenDate} />
+          </div>
         </div>
       ) : (
         currentSeason && <RatioChart current={currentSeason} past={pastSeasons} />

@@ -3,8 +3,8 @@ import type { AssignmentView } from '@/lib/types';
 // ============================================================
 // カレンダーのマスに並ぶ 1 件分のカード
 //   ・担当者を主役にする（太字・大きめ）
-//   ・練習場所は「左端の色ライン＋小さな場所名」で示す
-//     （色タグだと横幅を食ってスマホで潰れるため）
+//   ・練習場所は場所ごとの色の文字で小さく添える
+//     （色タグや縦ラインだと横幅を食ってスマホで潰れるため）
 //   ・オフの日は担当者を出さず、灰色で「オフ」とだけ出す
 // ============================================================
 export default function AssignmentCard({
@@ -34,10 +34,7 @@ export default function AssignmentCard({
   const accent = place?.color ?? '#C9D2DA';
 
   return (
-    <div
-      className={`overflow-hidden rounded-md bg-white ${compact ? 'py-[3px] pl-1.5 pr-1' : 'py-1 pl-2 pr-1.5'}`}
-      style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
-    >
+    <div className={`overflow-hidden rounded-md bg-white ${compact ? 'px-1 py-[3px]' : 'px-1.5 py-1'}`}>
       {slotLabel && (
         <div className={`font-medium text-ink-faint ${compact ? 'text-[9px] leading-tight' : 'text-[10px]'}`}>
           {slotLabel}

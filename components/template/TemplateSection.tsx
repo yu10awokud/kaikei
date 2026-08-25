@@ -5,27 +5,27 @@ import { LATEST_TEMPLATE } from '@/data/template';
 export default function TemplateSection() {
   return (
     <section id="template">
-      <SectionHeader emoji="📄" title="テンプレート" />
+      <SectionHeader title="テンプレート" en="Template" />
 
-      <div className="card p-4">
-        <a
-          href={`/templates/${LATEST_TEMPLATE.fileName}`}
-          download
-          className="flex items-center justify-between gap-3 rounded-card border border-line px-3 py-3 tap"
-        >
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-bold">{LATEST_TEMPLATE.fileName}</span>
-            <span className="block text-xs text-neutral-500">{LATEST_TEMPLATE.size}</span>
+      <a
+        href={`/templates/${LATEST_TEMPLATE.fileName}`}
+        download
+        className="card flex items-center justify-between gap-3 p-4 tap"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-bold text-ink">
+            {LATEST_TEMPLATE.fileName}
           </span>
-          <span className="shrink-0 rounded-card bg-ink px-3 py-1.5 text-xs font-bold text-white">
-            ダウンロード
+          <span className="font-en mt-0.5 block text-[11px] font-medium text-ink-faint">
+            {LATEST_TEMPLATE.size}　·　{LATEST_TEMPLATE.date}　·　{LATEST_TEMPLATE.version}
           </span>
-        </a>
+          <span className="mt-1 block text-[11px] text-ink-soft">{LATEST_TEMPLATE.note}</span>
+        </span>
 
-        <p className="mt-3 text-xs text-neutral-600">
-          {LATEST_TEMPLATE.date}　｜　{LATEST_TEMPLATE.version}　｜　{LATEST_TEMPLATE.note}
-        </p>
-      </div>
+        <span className="shrink-0 rounded-full bg-aqua-600 px-4 py-2 text-xs font-bold text-white">
+          ダウンロード
+        </span>
+      </a>
     </section>
   );
 }

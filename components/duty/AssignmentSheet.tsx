@@ -195,27 +195,27 @@ export default function AssignmentSheet({
       aria-label={`${dateKey} の割り当て`}
     >
       <div
-        className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 pb-6 shadow-xl sm:rounded-2xl"
+        className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-white p-4 pb-6 shadow-xl sm:rounded-card"
         onClick={(e) => e.stopPropagation()}
       >
         {/* つまみ（スマホでボトムシートらしく見せる） */}
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-neutral-300 sm:hidden" />
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-line sm:hidden" />
 
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-bold">{formatDateWithWeekday(dateKey)}</h3>
-          <button type="button" onClick={onClose} className="px-2 py-1 text-sm text-neutral-500">
+          <h3 className="text-base font-bold text-ink">{formatDateWithWeekday(dateKey)}</h3>
+          <button type="button" onClick={onClose} className="px-2 py-1 text-sm text-ink-faint">
             閉じる
           </button>
         </div>
 
         {/* 二部練トグル */}
-        <label className="mb-4 flex items-center justify-between rounded-card bg-cream px-3 py-2.5">
+        <label className="mb-4 flex items-center justify-between rounded-card bg-aqua-50 px-3.5 py-3">
           <span className="text-sm font-bold">二部練にする（午前・午後）</span>
           <input
             type="checkbox"
             checked={split}
             onChange={(e) => toggleSplit(e.target.checked)}
-            className="h-5 w-5 accent-neutral-800"
+            className="h-5 w-5 accent-aqua-600"
           />
         </label>
 
@@ -230,19 +230,19 @@ export default function AssignmentSheet({
 
         {/* 練習場所を選んだときだけ出る「毎週まとめて登録」 */}
         {!split && allDay.place_id && (
-          <div className="mt-4 rounded-card border border-line bg-neutral-50 px-3 py-2.5">
+          <div className="mt-4 rounded-card border border-line bg-line-soft px-3.5 py-3">
             <label className="flex items-start gap-2">
               <input
                 type="checkbox"
                 checked={repeat}
                 onChange={(e) => setRepeat(e.target.checked)}
-                className="mt-0.5 h-5 w-5 shrink-0 accent-neutral-800"
+                className="mt-0.5 h-5 w-5 shrink-0 accent-aqua-600"
               />
               <span className="text-sm">
                 <span className="font-bold">
                   この日以降、毎週{weekdayOf(dateKey)}曜日に同じ場所を登録する
                 </span>
-                <span className="mt-0.5 block text-xs text-neutral-500">
+                <span className="mt-0.5 block text-xs text-ink-faint">
                   練習場所だけを入れます（担当者は「未定」のまま）。すでに登録がある日はそのままです。
                 </span>
               </span>
@@ -250,7 +250,7 @@ export default function AssignmentSheet({
 
             {repeat && (
               <div className="mt-2.5 pl-7">
-                <label className="mb-1 block text-xs text-neutral-500">どこまで登録する？</label>
+                <label className="mb-1 block text-xs font-medium text-ink-faint">どこまで登録する？</label>
                 <select
                   className="field"
                   value={repeatUntil}
@@ -260,7 +260,7 @@ export default function AssignmentSheet({
                   <option value="three">3か月先の月末まで</option>
                   <option value="season">今シーズンの終わり（8/31）まで</option>
                 </select>
-                <p className="mt-1.5 text-xs text-neutral-500">
+                <p className="mt-1.5 text-xs text-ink-faint">
                   例外の日は、あとからその日をタップして削除・変更できます。
                 </p>
               </div>
@@ -269,11 +269,11 @@ export default function AssignmentSheet({
         )}
 
         {result && (
-          <p className="mt-3 rounded-card border border-line bg-cream px-3 py-2 text-sm">{result}</p>
+          <p className="mt-3 rounded-card border border-line bg-aqua-50 px-3 py-2 text-sm">{result}</p>
         )}
 
         {error && (
-          <p className="mt-3 rounded-card border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-3 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {error}
           </p>
         )}
@@ -288,14 +288,14 @@ export default function AssignmentSheet({
               type="button"
               onClick={handleDelete}
               disabled={saving}
-              className="w-full rounded-card border border-red-200 px-4 py-2.5 text-sm text-red-700 tap"
+              className="w-full rounded-full border border-rose-200 px-4 py-2.5 text-sm font-medium text-rose-600 tap"
             >
               この日の登録を削除
             </button>
           )}
         </div>
 
-        <p className="mt-3 text-center text-[11px] text-neutral-400">
+        <p className="mt-3 text-center text-[11px] text-ink-faint">
           担当者・場所は片方だけでも保存できます（未選択は「未定」になります）
         </p>
       </div>
@@ -323,14 +323,14 @@ function SlotFields({
   const isOff = places.some((p) => p.id === draft.place_id && p.is_off);
 
   return (
-    <div className={title ? 'rounded-card border border-line p-3' : ''}>
-      {title && <div className="mb-2 text-sm font-bold text-neutral-600">{title}</div>}
+    <div className={title ? 'rounded-card border border-line p-3.5' : ''}>
+      {title && <div className="mb-2 text-sm font-bold text-ink-soft">{title}</div>}
 
       <div className="space-y-3">
         {/* オフの日は担当者を選ぶ必要がないので隠す */}
         {!isOff && (
           <div>
-            <label className="mb-1 block text-xs text-neutral-500">担当者</label>
+            <label className="mb-1 block text-xs font-medium text-ink-faint">担当者</label>
             <select
               className="field"
               value={draft.member_id}
@@ -347,7 +347,7 @@ function SlotFields({
         )}
 
         <div>
-          <label className="mb-1 block text-xs text-neutral-500">練習場所</label>
+          <label className="mb-1 block text-xs font-medium text-ink-faint">練習場所</label>
           <select
             className="field"
             value={draft.place_id}
@@ -368,7 +368,7 @@ function SlotFields({
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-neutral-500">メモ（任意）</label>
+          <label className="mb-1 block text-xs font-medium text-ink-faint">メモ（任意）</label>
           <input
             type="text"
             className="field"

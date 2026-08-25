@@ -17,11 +17,11 @@ export default async function AdminPage() {
   return (
     <main className="space-y-10">
       <header>
-        <Link href="/" className="text-sm text-neutral-500 underline">
+        <Link href="/" className="text-[13px] font-medium text-ink-faint underline underline-offset-2">
           ← トップに戻る
         </Link>
-        <h1 className="mt-3 text-2xl font-bold tracking-tight">管理画面</h1>
-        <p className="mt-1 text-xs text-neutral-500">
+        <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink">管理画面</h1>
+        <p className="mt-1 text-xs text-ink-faint">
           部員・練習場所の設定と、削除した割り当ての復元ができます。
         </p>
       </header>
@@ -34,7 +34,6 @@ export default async function AdminPage() {
 
       <section>
         <SectionHeader
-          emoji="🧑"
           title="部員"
           description="引退・卒業しても削除せず、「在籍中」のチェックを外してください（過去の集計が壊れないようにするため）。"
         />
@@ -42,12 +41,12 @@ export default async function AdminPage() {
       </section>
 
       <section>
-        <SectionHeader emoji="📍" title="練習場所" />
+        <SectionHeader title="練習場所" en="Places" />
         <MasterAdmin endpoint="places" label="練習場所" activeLabel="有効（場所プルダウンに表示する）" initialItems={places} />
       </section>
 
       <section>
-        <SectionHeader emoji="🗑" title="削除した割り当て" description="削除は取り消せます。復元すると担当日に戻ります。" />
+        <SectionHeader title="削除した割り当て" en="Deleted" description="削除は取り消せます。復元すると担当日に戻ります。" />
         <DeletedAssignments initialItems={deleted} />
       </section>
     </main>
