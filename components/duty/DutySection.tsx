@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import SectionHeader from '@/components/SectionHeader';
 import AssignmentSheet from '@/components/duty/AssignmentSheet';
 import MonthCalendar from '@/components/duty/MonthCalendar';
+import NextPractice from '@/components/duty/NextPractice';
 import UpcomingList from '@/components/duty/UpcomingList';
 import RatioChart from '@/components/duty/RatioChart';
 import { addMonths, formatMonthTitle } from '@/lib/date';
@@ -68,7 +69,12 @@ export default function DutySection({
 
   return (
     <section id="duty">
-      <SectionHeader emoji="🏊" title="メニュー担当" />
+      {/* 次回の練習を一番上に */}
+      <div className="mb-8">
+        <NextPractice assignments={assignments} onSelectDate={setOpenDate} />
+      </div>
+
+      <SectionHeader title="メニュー担当" en="Assignments" />
 
       {!configured && (
         <p className="mb-3 rounded-card border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -121,8 +127,8 @@ export default function DutySection({
             </div>
           </div>
 
-          {/* カレンダーを主役に。PC では右に、スマホでは下に直近1週間を出す */}
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start">
+          {/* カレンダーが主役。その下に直近1週間を並べる（PC でも縦積み） */}
+          <div className="space-y-3">
             <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
             <UpcomingList byDate={byDate} onSelectDate={setOpenDate} />
           </div>

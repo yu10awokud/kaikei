@@ -18,10 +18,18 @@ body {
   background-color: #ffffff;
   color: theme('colors.ink.DEFAULT');
   font-family: theme('fontFamily.sans');
-  line-height: 1.75;
-  /* 文字を少しだけ引き締めて洗練した印象にする */
-  letter-spacing: 0.01em;
+  line-height: 1.7;
+  /* 文字を気持ち詰めて、締まった印象にする */
+  letter-spacing: 0.005em;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 見出しはさらに詰めて、大きくしても間延びしないようにする */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
 }
 
 /* 数字・英字を Inter で表示したい箇所に付ける */
@@ -42,7 +50,8 @@ body {
   }
 
   .card {
-    @apply rounded-card border border-line bg-white shadow-card;
+    @apply rounded-card border border-line bg-white shadow-card
+           transition-colors duration-150 hover:border-line-soft;
   }
 
   .tag {

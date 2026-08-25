@@ -27,7 +27,7 @@ export default async function ManualPage({ params }: { params: Promise<{ slug: s
 
       <div className="mt-5 flex items-center gap-3 border-b border-line pb-5">
         <span
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-lg"
+          className="font-en flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-ink-soft"
           style={{ backgroundColor: meta.tint }}
         >
           {meta.icon}

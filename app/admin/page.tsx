@@ -34,7 +34,7 @@ export default async function AdminPage() {
 
       <section>
         <SectionHeader
-          title="部員"
+          title="部員" en="Members"
           description="引退・卒業しても削除せず、「在籍中」のチェックを外してください（過去の集計が壊れないようにするため）。"
         />
         <MasterAdmin endpoint="members" label="部員" activeLabel="在籍中（担当者プルダウンに表示する）" initialItems={members} />

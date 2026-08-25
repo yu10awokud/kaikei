@@ -17,9 +17,9 @@ export default function ManualCards() {
               href={`/manual/${slug}`}
               className="card flex items-center gap-3 p-4 tap sm:flex-col sm:items-start sm:gap-0"
             >
-              {/* 小さな丸いアイコン（大きなグラデーション帯はやめる） */}
+              {/* 絵文字は使わず、番号を小さく添える */}
               <span
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base sm:mb-3"
+                className="font-en flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-ink-soft sm:mb-3"
                 style={{ backgroundColor: meta.tint }}
               >
                 {meta.icon}

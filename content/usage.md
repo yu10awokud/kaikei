@@ -17,7 +17,7 @@
 [トップページ](/#template)／以下 からテンプレートをダウンロード
 緑色部分をタップするとダウンロードできます
 
-!file[📎 kpumswim_template.xlsx　20.3 KB](/templates/kpumswim_template.xlsx)
+!file[kpumswim_template.xlsx　20.3 KB](/templates/kpumswim_template.xlsx)
 
 25.09.20｜Ver.8.3｜マネ欄に記号Ⓗを追加
 
@@ -53,11 +53,11 @@ W-up, Pull, Kick, Swim などのカテゴリーを選択
 - Down：5分以上
 :::
 
-::: note 🔖 時間補助欄
+::: note 時間補助欄
 「距離」，「本数」，「サークル」が入力されると右端に赤字で表示されます
 各行ごとのメニュー対して 各コースの所要時間が表示されます
 
-::: note ✨ コース間の時間調整
+::: note コース間の時間調整
 時間補助欄を範囲選択することで合計時間を確認できます【画像 右下】
 
 ![時間補助欄を範囲選択すると画面右下に合計時間が表示される](/manual/usage-time-helper.png)
@@ -85,7 +85,7 @@ W-up, Pull, Kick, Swim などのカテゴリーを選択
 A／B／Cコースのメニューを それぞれ H／S／AD列から入力
 「距離」→「本数」→「セット数」→「サークル」→「内容」の順に入力
 
-::: note 🔖 サークルの入力方法
+::: note サークルの入力方法
 サークル欄には **数字のみ** 入力してください！
 
 例

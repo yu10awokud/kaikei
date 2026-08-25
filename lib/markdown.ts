@@ -34,19 +34,19 @@ export const MANUAL_META: Record<
   usage: {
     title: 'usage',
     subtitle: '使い方',
-    icon: '📘',
+    icon: '01', // 絵文字は使わず、番号で示す
     tint: '#DDEDF8', // 薄いブルー
   },
   tips: {
     title: 'tips',
     subtitle: 'コツ・小技',
-    icon: '💡',
+    icon: '02',
     tint: '#DFF1EC', // 薄い青緑
   },
   archive: {
     title: 'archive',
     subtitle: '過去の資料',
-    icon: '🗂️',
+    icon: '03',
     tint: '#F0EEE9', // 薄いグレージュ
   },
 };
