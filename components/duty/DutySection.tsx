@@ -76,7 +76,7 @@ export default function DutySection({
       )}
 
       {/* タブ */}
-      <div className="mb-3 flex gap-1 rounded-card bg-neutral-100 p-1">
+      <div className="mb-4 inline-flex gap-1 rounded-full bg-line-soft p-1">
         <TabButton active={tab === 'days'} onClick={() => setTab('days')}>
           担当日
         </TabButton>
@@ -87,34 +87,35 @@ export default function DutySection({
 
       {tab === 'days' ? (
         <div>
-          {/* 月の移動 ＋ 表示切替 */}
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1">
+          {/* 月の移動 */}
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h3 className="font-en text-xl font-semibold tracking-tight sm:text-2xl">
+              {formatMonthTitle(ym.year, ym.month)}
+            </h3>
+
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                className="btn px-2.5"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-ink-soft tap"
                 onClick={() => setYm(addMonths(ym.year, ym.month, -1))}
                 aria-label="前の月"
               >
                 ‹
               </button>
-              <span className="min-w-[132px] text-center text-sm font-bold">
-                {formatMonthTitle(ym.year, ym.month)}
-              </span>
               <button
                 type="button"
-                className="btn px-2.5"
+                className="btn font-en"
+                onClick={() => setYm({ year: today.getFullYear(), month: today.getMonth() + 1 })}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-line text-ink-soft tap"
                 onClick={() => setYm(addMonths(ym.year, ym.month, 1))}
                 aria-label="次の月"
               >
                 ›
-              </button>
-              <button
-                type="button"
-                className="btn ml-1 text-xs"
-                onClick={() => setYm({ year: today.getFullYear(), month: today.getMonth() + 1 })}
-              >
-                Today
               </button>
             </div>
           </div>
@@ -155,9 +156,9 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-[7px] text-center font-bold transition-colors ${
-        small ? 'px-2.5 py-1 text-xs' : 'px-3 py-2 text-sm'
-      } ${active ? 'bg-white shadow-sm' : 'text-neutral-500'}`}
+      className={`rounded-full text-center font-bold transition-colors ${
+        small ? 'px-3 py-1 text-xs' : 'px-5 py-1.5 text-sm'
+      } ${active ? 'bg-white text-ink shadow-card' : 'text-ink-faint'}`}
     >
       {children}
     </button>

@@ -3,9 +3,7 @@
 @tailwind utilities;
 
 /* ============================================================
-   全体の基本スタイル
-   ・白背景 / 黒文字 / 装飾は控えめ
-   ・日本語が読みやすいシステムフォント
+   全体の基本スタイル（ミニマル・白基調＋ブルー）
    ============================================================ */
 
 :root {
@@ -13,48 +11,60 @@
 }
 
 html {
-  /* スマホで横スクロールが起きないようにする */
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   background-color: #ffffff;
-  color: #1f1f1f;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans',
-    'Noto Sans JP', 'Yu Gothic', 'Meiryo', system-ui, sans-serif;
-  line-height: 1.7;
+  color: theme('colors.ink.DEFAULT');
+  font-family: theme('fontFamily.sans');
+  line-height: 1.75;
+  /* 文字を少しだけ引き締めて洗練した印象にする */
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* タップしたことが分かる程度の反応（派手なアニメーションはしない） */
+/* 数字・英字を Inter で表示したい箇所に付ける */
+.font-en {
+  font-family: theme('fontFamily.en');
+  font-feature-settings: 'tnum' 1; /* 数字の幅を揃える */
+}
+
 @layer components {
+  /* タップしたことが分かる程度の反応 */
   .tap {
-    @apply transition-colors duration-100 active:bg-cream-dark;
+    @apply transition-colors duration-100 active:bg-line-soft;
   }
 
-  /* クリーム色の帯を敷いた見出し */
-  .section-band {
-    @apply rounded-card bg-cream px-3 py-2 text-base font-bold sm:text-lg;
+  /* セクション見出し（帯はやめて、細い線と余白で区切る） */
+  .section-title {
+    @apply flex items-baseline gap-2 text-[15px] font-bold tracking-wide text-ink;
   }
 
   .card {
-    @apply rounded-card border border-line bg-white;
+    @apply rounded-card border border-line bg-white shadow-card;
   }
 
   .tag {
-    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs leading-tight;
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight;
   }
 
   .btn {
-    @apply rounded-card border border-line bg-white px-3 py-2 text-sm tap;
+    @apply rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-medium text-ink-soft tap;
   }
 
   .btn-primary {
-    @apply rounded-card bg-ink px-4 py-2.5 text-sm font-bold text-white transition-opacity active:opacity-70 disabled:opacity-40;
+    @apply rounded-full bg-aqua-600 px-4 py-3 text-sm font-bold text-white transition-opacity active:opacity-80 disabled:opacity-40;
   }
 
   .field {
-    @apply w-full rounded-card border border-line bg-white px-3 py-2.5 text-base;
+    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-base text-ink
+           focus:border-aqua-400 focus:outline-none focus:ring-2 focus:ring-aqua-100;
+  }
+
+  /* マニュアル本文で使う帯見出し（旧 section-band の置き換え先） */
+  .section-band {
+    @apply rounded-card bg-aqua-50 px-3 py-2 text-base font-bold sm:text-lg;
   }
 }
 

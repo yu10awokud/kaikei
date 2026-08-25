@@ -1,8 +1,12 @@
 import type { AssignmentView } from '@/lib/types';
 
-// 1 件の割り当てカード（2 段構成）
-//   1 段目：担当者名（太字）。未定なら「未定」を灰色で。
-//   2 段目：練習場所を色付きタグで表示。
+// ============================================================
+// カレンダーのマスに並ぶ 1 件分のカード
+//   ・担当者を主役にする（太字・大きめ）
+//   ・練習場所は「左端の色ライン＋小さな場所名」で示す
+//     （色タグだと横幅を食ってスマホで潰れるため）
+//   ・オフの日は担当者を出さず、灰色で「オフ」とだけ出す
+// ============================================================
 export default function AssignmentCard({
   assignment,
   compact = false,
@@ -12,52 +16,50 @@ export default function AssignmentCard({
 }) {
   const { slot, member, place } = assignment;
   const slotLabel = slot === 'am' ? '午前' : slot === 'pm' ? '午後' : null;
-  const isOff = Boolean(place?.is_off);
 
-  // オフの日は担当者を出さず、「オフ」とだけ灰色で表示する
-  if (isOff) {
+  // オフの日
+  if (place?.is_off) {
     return (
       <div
-        className={`rounded-card border border-line bg-neutral-100 text-center text-neutral-500 ${
-          compact ? 'px-1 py-0.5 text-[10px] leading-tight' : 'px-2 py-1.5 text-xs'
+        className={`rounded-md bg-line-soft text-center font-medium text-ink-faint ${
+          compact ? 'px-1 py-[3px] text-[10px] leading-tight' : 'px-2 py-1 text-xs'
         }`}
       >
         {slotLabel && <span className="mr-1">{slotLabel}</span>}
-        {place?.name ?? 'オフ'}
+        オフ
       </div>
     );
   }
 
+  const accent = place?.color ?? '#C9D2DA';
+
   return (
-    <div className={`rounded-card border border-line bg-white ${compact ? 'px-1 py-0.5' : 'px-2 py-1.5'}`}>
-      {/* 二部練の日だけ「午前 / 午後」を小さく添える */}
+    <div
+      className={`overflow-hidden rounded-md bg-white ${compact ? 'py-[3px] pl-1.5 pr-1' : 'py-1 pl-2 pr-1.5'}`}
+      style={{ boxShadow: `inset 3px 0 0 ${accent}` }}
+    >
       {slotLabel && (
-        <div className={`text-neutral-400 ${compact ? 'text-[9px] leading-tight' : 'text-[10px]'}`}>
+        <div className={`font-medium text-ink-faint ${compact ? 'text-[9px] leading-tight' : 'text-[10px]'}`}>
           {slotLabel}
         </div>
       )}
 
+      {/* 1 段目：担当者（主役） */}
       <div
-        className={`truncate font-bold ${compact ? 'text-[11px] leading-tight' : 'text-sm'} ${
-          member ? '' : 'font-normal text-neutral-400'
-        }`}
-        style={member ? { color: member.color } : undefined}
+        className={`truncate font-bold ${
+          compact ? 'text-[11px] leading-snug' : 'text-sm'
+        } ${member ? 'text-ink' : 'font-medium text-ink-faint'}`}
       >
         {member ? member.name : '未定'}
       </div>
 
+      {/* 2 段目：練習場所（控えめに） */}
       {place && (
-        <div className={compact ? 'mt-0.5' : 'mt-1'}>
-          <span
-            className={`tag truncate ${compact ? 'max-w-full px-1 py-0 text-[9px]' : ''}`}
-            style={{
-              borderColor: place.color,
-              color: place.color,
-              backgroundColor: `${place.color}14`, // 末尾 14 = 約 8% の透明度
-            }}
-          >
-            {place.name}
-          </span>
+        <div
+          className={`truncate font-medium ${compact ? 'text-[9px] leading-tight' : 'text-[11px]'}`}
+          style={{ color: accent }}
+        >
+          {place.name}
         </div>
       )}
     </div>

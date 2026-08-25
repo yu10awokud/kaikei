@@ -1,10 +1,15 @@
 'use client';
 
 import AssignmentCard from '@/components/duty/AssignmentCard';
-import { WEEKDAY_JA, buildCalendarCells, formatMonthTitle, todayKey } from '@/lib/date';
+import { WEEKDAY_JA, buildCalendarCells, todayKey } from '@/lib/date';
 import type { AssignmentView } from '@/lib/types';
 
-// 月表示カレンダー（日曜始まり・見出しは 'August 2026' 形式）
+// ============================================================
+// 月表示カレンダー（日曜始まり）
+//   ・スマホでも各マスに担当者名と場所名が入るよう、
+//     マスの高さを十分に取り、文字を詰めすぎない
+//   ・枠線は薄く、今日だけを青で示す
+// ============================================================
 export default function MonthCalendar({
   year,
   month,
@@ -20,13 +25,14 @@ export default function MonthCalendar({
   const today = todayKey();
 
   return (
-    <div className="card overflow-hidden">
-      <div className="grid grid-cols-7 border-b border-line bg-cream">
+    <div className="overflow-hidden rounded-card border border-line bg-white shadow-card">
+      {/* 曜日の見出し */}
+      <div className="grid grid-cols-7 border-b border-line">
         {WEEKDAY_JA.map((w, i) => (
           <div
             key={w}
-            className={`py-1.5 text-center text-[11px] font-bold ${
-              i === 0 ? 'text-red-600' : i === 6 ? 'text-blue-600' : 'text-neutral-600'
+            className={`py-2 text-center text-[11px] font-medium ${
+              i === 0 ? 'text-rose-400' : i === 6 ? 'text-aqua-400' : 'text-ink-faint'
             }`}
           >
             {w}
@@ -35,35 +41,45 @@ export default function MonthCalendar({
       </div>
 
       <div className="grid grid-cols-7">
-        {cells.map((cell) => {
+        {cells.map((cell, index) => {
           const items = byDate.get(cell.key) ?? [];
+          const isToday = cell.key === today;
+
           return (
             <button
               key={cell.key}
               type="button"
               onClick={() => onSelectDate(cell.key)}
-              className={`min-h-[68px] border-b border-r border-line p-0.5 text-left align-top tap sm:min-h-[92px] sm:p-1 ${
-                cell.inMonth ? 'bg-white' : 'bg-neutral-50'
-              }`}
+              className={`
+                min-h-[80px] p-1 text-left align-top transition-colors sm:min-h-[104px] sm:p-1.5
+                ${cell.inMonth ? 'bg-white' : 'bg-line-soft/40'}
+                ${index % 7 !== 6 ? 'border-r' : ''}
+                ${index < 35 ? 'border-b' : ''}
+                border-line active:bg-aqua-50
+              `}
               aria-label={`${cell.key} の割り当てを編集`}
             >
-              <div
-                className={`mb-0.5 px-0.5 text-[10px] sm:text-xs ${
-                  !cell.inMonth
-                    ? 'text-neutral-300'
-                    : cell.key === today
-                      ? 'inline-block rounded-full bg-ink px-1.5 font-bold text-white'
-                      : cell.weekday === 0
-                        ? 'text-red-600'
-                        : cell.weekday === 6
-                          ? 'text-blue-600'
-                          : 'text-neutral-600'
-                }`}
-              >
-                {cell.day}
+              {/* 日付 */}
+              <div className="mb-1 flex justify-center sm:justify-start">
+                <span
+                  className={`font-en inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-semibold sm:text-xs ${
+                    isToday
+                      ? 'bg-aqua-600 text-white'
+                      : !cell.inMonth
+                        ? 'text-ink-faint/50'
+                        : cell.weekday === 0
+                          ? 'text-rose-400'
+                          : cell.weekday === 6
+                            ? 'text-aqua-500'
+                            : 'text-ink-soft'
+                  }`}
+                >
+                  {cell.day}
+                </span>
               </div>
 
-              <div className="space-y-0.5">
+              {/* 担当カード */}
+              <div className="space-y-1">
                 {items.map((a) => (
                   <AssignmentCard key={a.id} assignment={a} compact />
                 ))}
@@ -71,10 +87,6 @@ export default function MonthCalendar({
             </button>
           );
         })}
-      </div>
-
-      <div className="px-3 py-2 text-center text-[11px] text-neutral-400">
-        {formatMonthTitle(year, month)}　／　日付をタップすると編集できます
       </div>
     </div>
   );
