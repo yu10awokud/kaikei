@@ -31,6 +31,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
     patch.color = body.color;
   }
   if ('is_active' in body) patch.is_active = Boolean(body.is_active);
+  if ('is_off' in body) patch.is_off = Boolean(body.is_off);
   if ('sort_order' in body) {
     const n = Number(body.sort_order);
     if (!Number.isInteger(n)) return fail('並び順は整数で指定してください。');

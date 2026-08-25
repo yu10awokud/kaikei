@@ -116,6 +116,24 @@ export default function MasterAdmin({
               />
               <span className={item.is_active ? '' : 'text-neutral-400'}>{activeLabel}</span>
             </label>
+
+            {/* 練習場所だけ：オフ（練習なし）として扱うかどうか */}
+            {endpoint === 'places' && (
+              <label className="mt-1.5 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean((item as Place).is_off)}
+                  onChange={(e) => handlePatch(item.id, { is_off: e.target.checked })}
+                  className="h-4 w-4 accent-neutral-800"
+                />
+                <span className="text-neutral-600">
+                  オフ（練習なし）として扱う
+                  <span className="block text-xs text-neutral-400">
+                    担当者欄を出さずに、カレンダーに灰色で表示します
+                  </span>
+                </span>
+              </label>
+            )}
           </li>
         ))}
       </ul>

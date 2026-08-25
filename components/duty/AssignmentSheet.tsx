@@ -319,33 +319,44 @@ function SlotFields({
   members: Member[];
   places: Place[];
 }) {
+  // 「オフ」の場所が選ばれているか
+  const isOff = places.some((p) => p.id === draft.place_id && p.is_off);
+
   return (
     <div className={title ? 'rounded-card border border-line p-3' : ''}>
       {title && <div className="mb-2 text-sm font-bold text-neutral-600">{title}</div>}
 
       <div className="space-y-3">
-        <div>
-          <label className="mb-1 block text-xs text-neutral-500">担当者</label>
-          <select
-            className="field"
-            value={draft.member_id}
-            onChange={(e) => setDraft({ ...draft, member_id: e.target.value })}
-          >
-            <option value="">未定</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* オフの日は担当者を選ぶ必要がないので隠す */}
+        {!isOff && (
+          <div>
+            <label className="mb-1 block text-xs text-neutral-500">担当者</label>
+            <select
+              className="field"
+              value={draft.member_id}
+              onChange={(e) => setDraft({ ...draft, member_id: e.target.value })}
+            >
+              <option value="">未定</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs text-neutral-500">練習場所</label>
           <select
             className="field"
             value={draft.place_id}
-            onChange={(e) => setDraft({ ...draft, place_id: e.target.value })}
+            onChange={(e) => {
+              const nextId = e.target.value;
+              const nextIsOff = places.some((p) => p.id === nextId && p.is_off);
+              // オフに変えたときは担当者を外す
+              setDraft({ ...draft, place_id: nextId, member_id: nextIsOff ? '' : draft.member_id });
+            }}
           >
             <option value="">未定</option>
             {places.map((p) => (

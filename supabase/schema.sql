@@ -52,9 +52,14 @@ create table if not exists public.places (
   color       text        not null default '#888888',  -- タグの色（HEX）
   is_active   boolean     not null default true,
   sort_order  integer     not null default 0,
+  -- true にすると「オフ（練習なし）」扱い。担当者欄を出さずに表示する
+  is_off      boolean     not null default false,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
+
+-- すでに places がある環境に後から足す場合の保険
+alter table public.places add column if not exists is_off boolean not null default false;
 
 create unique index if not exists places_name_key on public.places (name);
 create index if not exists places_sort_idx on public.places (sort_order, created_at);

@@ -12,6 +12,21 @@ export default function AssignmentCard({
 }) {
   const { slot, member, place } = assignment;
   const slotLabel = slot === 'am' ? '午前' : slot === 'pm' ? '午後' : null;
+  const isOff = Boolean(place?.is_off);
+
+  // オフの日は担当者を出さず、「オフ」とだけ灰色で表示する
+  if (isOff) {
+    return (
+      <div
+        className={`rounded-card border border-line bg-neutral-100 text-center text-neutral-500 ${
+          compact ? 'px-1 py-0.5 text-[10px] leading-tight' : 'px-2 py-1.5 text-xs'
+        }`}
+      >
+        {slotLabel && <span className="mr-1">{slotLabel}</span>}
+        {place?.name ?? 'オフ'}
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded-card border border-line bg-white ${compact ? 'px-1 py-0.5' : 'px-2 py-1.5'}`}>

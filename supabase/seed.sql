@@ -25,10 +25,11 @@ on conflict (name) do nothing;
 -- ------------------------------------------------------------
 -- places（練習場所 3 件）
 -- ------------------------------------------------------------
-insert into public.places (name, color, is_active, sort_order) values
-  ('イリアス',     '#2E5FA3', true, 1),  -- 青系
-  ('アクアリーナ', '#4FC3F7', true, 2),  -- 水色系
-  ('合宿・強化',   '#D64545', true, 3)   -- 赤系
+insert into public.places (name, color, is_active, sort_order, is_off) values
+  ('イリアス',     '#2E5FA3', true, 1, false),  -- 青系
+  ('アクアリーナ', '#4FC3F7', true, 2, false),  -- 水色系
+  ('合宿・強化',   '#D64545', true, 3, false),  -- 赤系
+  ('オフ',         '#9E9E9E', true, 99, true)   -- 練習なしの日に使う
 on conflict (name) do nothing;
 
 -- ------------------------------------------------------------

@@ -29,6 +29,8 @@ export type Place = {
   name: string;
   color: string;
   is_active: boolean;
+  /** true = 「オフ（練習なし）」用の場所。担当者欄を出さずに表示する */
+  is_off: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -50,7 +52,7 @@ export type Assignment = {
 /** 画面表示用に、部員名と場所名を埋めた割り当て */
 export type AssignmentView = Assignment & {
   member: Pick<Member, 'id' | 'name' | 'color'> | null;
-  place: Pick<Place, 'id' | 'name' | 'color'> | null;
+  place: Pick<Place, 'id' | 'name' | 'color' | 'is_off'> | null;
 };
 
 /** 担当率タブで使う集計結果の 1 行 */
