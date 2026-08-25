@@ -53,6 +53,15 @@ export default function DutySection({
     setAssignments((prev) => [...prev.filter((a) => a.date !== dateKey), ...saved]);
   }
 
+  /** 「毎週まとめて登録」で増えたぶんを足す */
+  function handleBulkAdded(added: AssignmentView[]) {
+    if (added.length === 0) return;
+    setAssignments((prev) => {
+      const ids = new Set(added.map((a) => a.id));
+      return [...prev.filter((a) => !ids.has(a.id)), ...added];
+    });
+  }
+
   const activeMembers = members.filter((m) => m.is_active);
   const activePlaces = places.filter((p) => p.is_active);
 
@@ -124,6 +133,7 @@ export default function DutySection({
           places={activePlaces}
           onClose={() => setOpenDate(null)}
           onSaved={handleSaved}
+          onBulkAdded={handleBulkAdded}
         />
       )}
     </section>

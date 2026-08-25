@@ -55,6 +55,18 @@ export function monthRange(year: number, month: number): { start: string; end: s
   };
 }
 
+/** 'YYYY-MM-DD' に日数を足す（'2026-08-30' + 7 → '2026-09-06'） */
+export function addDays(key: string, diff: number): string {
+  const d = fromDateKey(key);
+  d.setDate(d.getDate() + diff);
+  return toDateKey(d);
+}
+
+/** その日の曜日名（'火'） */
+export function weekdayOf(key: string): string {
+  return WEEKDAY_JA[fromDateKey(key).getDay()];
+}
+
 /** 前の月 / 次の月 */
 export function addMonths(year: number, month: number, diff: number): { year: number; month: number } {
   const total = year * 12 + (month - 1) + diff;

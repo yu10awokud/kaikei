@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { formatDateWithWeekday } from '@/lib/date';
+import { addDays, formatDateWithWeekday, monthRange, weekdayOf } from '@/lib/date';
+import { getSeasonKeyFromDate, getSeasonRange } from '@/lib/season';
 import type { AssignmentView, Member, Place, Slot } from '@/lib/types';
 
 // ============================================================
@@ -36,6 +37,7 @@ export default function AssignmentSheet({
   places,
   onClose,
   onSaved,
+  onBulkAdded,
 }: {
   dateKey: string;
   assignments: AssignmentView[];
@@ -43,6 +45,7 @@ export default function AssignmentSheet({
   places: Place[];
   onClose: () => void;
   onSaved: (dateKey: string, assignments: AssignmentView[]) => void;
+  onBulkAdded: (assignments: AssignmentView[]) => void;
 }) {
   const bySlot = useMemo(() => {
     const map = new Map<Slot, AssignmentView>();
@@ -58,6 +61,11 @@ export default function AssignmentSheet({
   const [pm, setPm] = useState<Draft>(toDraft(bySlot.get('pm')));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 「この日以降、毎週この場所」用
+  const [repeat, setRepeat] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState<'month' | 'three' | 'season'>('month');
+  const [result, setResult] = useState<string | null>(null);
 
   // 背面のスクロールを止める
   useEffect(() => {
@@ -99,9 +107,21 @@ export default function AssignmentSheet({
     setSplit(false);
   }
 
+  /** 「毎週」の終了日を求める */
+  function repeatEndDate(): string {
+    const [y, m] = dateKey.split('-').map(Number);
+    if (repeatUntil === 'month') return monthRange(y, m).end;
+    if (repeatUntil === 'three') {
+      const total = y * 12 + (m - 1) + 3;
+      return monthRange(Math.floor(total / 12), (total % 12) + 1).end;
+    }
+    return getSeasonRange(getSeasonKeyFromDate(dateKey)).end;
+  }
+
   async function handleSave() {
     setSaving(true);
     setError(null);
+    setResult(null);
 
     const body = split
       ? { date: dateKey, mode: 'split', am: toPayload(am), pm: toPayload(pm) }
@@ -116,6 +136,23 @@ export default function AssignmentSheet({
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? '保存に失敗しました。');
       onSaved(dateKey, json.assignments ?? []);
+
+      // 「この日以降、毎週この場所」がONなら翌週以降にも場所だけ登録する
+      if (repeat && !split && allDay.place_id) {
+        const repeatRes = await fetch('/api/assignments/repeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start_date: addDays(dateKey, 7), // この日はすでに保存済みなので翌週から
+            end_date: repeatEndDate(),
+            place_id: allDay.place_id,
+          }),
+        });
+        const repeatJson = await repeatRes.json();
+        if (!repeatRes.ok) throw new Error(repeatJson.error ?? '毎週の登録に失敗しました。');
+        onBulkAdded(repeatJson.assignments ?? []);
+      }
+
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存に失敗しました。');
@@ -189,6 +226,50 @@ export default function AssignmentSheet({
           </div>
         ) : (
           <SlotFields draft={allDay} setDraft={setAllDay} members={members} places={places} />
+        )}
+
+        {/* 練習場所を選んだときだけ出る「毎週まとめて登録」 */}
+        {!split && allDay.place_id && (
+          <div className="mt-4 rounded-card border border-line bg-neutral-50 px-3 py-2.5">
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                checked={repeat}
+                onChange={(e) => setRepeat(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 accent-neutral-800"
+              />
+              <span className="text-sm">
+                <span className="font-bold">
+                  この日以降、毎週{weekdayOf(dateKey)}曜日に同じ場所を登録する
+                </span>
+                <span className="mt-0.5 block text-xs text-neutral-500">
+                  練習場所だけを入れます（担当者は「未定」のまま）。すでに登録がある日はそのままです。
+                </span>
+              </span>
+            </label>
+
+            {repeat && (
+              <div className="mt-2.5 pl-7">
+                <label className="mb-1 block text-xs text-neutral-500">どこまで登録する？</label>
+                <select
+                  className="field"
+                  value={repeatUntil}
+                  onChange={(e) => setRepeatUntil(e.target.value as 'month' | 'three' | 'season')}
+                >
+                  <option value="month">今月末まで</option>
+                  <option value="three">3か月先の月末まで</option>
+                  <option value="season">今シーズンの終わり（8/31）まで</option>
+                </select>
+                <p className="mt-1.5 text-xs text-neutral-500">
+                  例外の日は、あとからその日をタップして削除・変更できます。
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {result && (
+          <p className="mt-3 rounded-card border border-line bg-cream px-3 py-2 text-sm">{result}</p>
         )}
 
         {error && (
