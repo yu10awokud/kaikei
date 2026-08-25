@@ -5,12 +5,12 @@ export default function SiteHeader() {
   return (
     <div className="flex items-center gap-3">
       <Image
-        src="/logo-kpum.svg"
+        src="/logo-kpum.png"
         alt="京都府立医科大学 水泳部"
-        width={40}
-        height={40}
+        width={512}
+        height={512}
         priority
-        className="h-10 w-10 shrink-0 rounded-[10px]"
+        className="h-11 w-11 shrink-0 object-contain"
       />
       <div className="min-w-0">
         <h1 className="text-xl font-bold tracking-tight text-ink sm:text-[22px]">メニュー特戦隊</h1>
