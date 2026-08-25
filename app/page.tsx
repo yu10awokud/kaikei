@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import HomeTabs from '@/components/HomeTabs';
+import SiteHeader from '@/components/SiteHeader';
 import DutySection from '@/components/duty/DutySection';
 import LinksSection from '@/components/links/LinksSection';
 import ManualCards from '@/components/manual/ManualCards';
@@ -12,32 +14,40 @@ export default async function HomePage() {
   const { members, places, assignments, configured, error } = await fetchInitialData();
 
   return (
-    <main className="space-y-12">
-      <header className="pb-1">
-        <h1 className="text-[26px] font-bold tracking-tight text-ink sm:text-3xl">メニュー特戦隊</h1>
-        <p className="font-en mt-1.5 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-faint">
-          KPUM Swim Team Menu Page
-        </p>
+    <main>
+      <header className="mb-6">
+        <SiteHeader />
       </header>
 
       {error && (
-        <p className="rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+        <p className="mb-6 rounded-card border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
           データの読み込みでエラーが発生しました：{error}
         </p>
       )}
 
-      <DutySection
-        initialAssignments={assignments}
-        members={members}
-        places={places}
-        configured={configured}
+      <HomeTabs
+        home={
+          <div className="space-y-12">
+            {/* 次回の練習 ＋ カレンダー ＋ 直近1週間 */}
+            <DutySection
+              initialAssignments={assignments}
+              members={members}
+              places={places}
+              configured={configured}
+            />
+            <LinksSection />
+          </div>
+        }
+        manual={
+          <div className="space-y-12">
+            <TemplateSection />
+            <ManualCards />
+          </div>
+        }
       />
-      <TemplateSection />
-      <ManualCards />
-      <LinksSection />
 
       {/* 管理画面へは目立たないリンクで */}
-      <footer className="border-t border-line pt-5 text-center">
+      <footer className="mt-14 border-t border-line pt-5 text-center">
         <Link href="/admin" className="text-[11px] text-ink-faint underline underline-offset-2">
           管理画面
         </Link>
