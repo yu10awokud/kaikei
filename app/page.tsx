@@ -15,7 +15,7 @@ export default async function HomePage() {
     <main className="space-y-10">
       <header className="pb-1">
         <h1 className="text-2xl font-bold tracking-tight">メニュー特戦隊</h1>
-        <p className="mt-1 text-xs text-neutral-500">大学水泳部 メニュー係の管理ページ</p>
+        <p className="mt-1 text-xs tracking-wide text-neutral-500">KPUM SWIM TEAM MENU PAGE</p>
       </header>
 
       {error && (

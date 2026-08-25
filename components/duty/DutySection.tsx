@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import SectionHeader from '@/components/SectionHeader';
 import AssignmentSheet from '@/components/duty/AssignmentSheet';
-import DutyList from '@/components/duty/DutyList';
 import MonthCalendar from '@/components/duty/MonthCalendar';
 import RatioChart from '@/components/duty/RatioChart';
-import { addMonths, formatMonthTitle, monthRange } from '@/lib/date';
+import { addMonths, formatMonthTitle } from '@/lib/date';
 import { getCurrentSeasonKey } from '@/lib/season';
 import { summarizeAllSeasons } from '@/lib/stats';
 import type { AssignmentView, Member, Place } from '@/lib/types';
@@ -25,18 +24,12 @@ export default function DutySection({
 }) {
   const [assignments, setAssignments] = useState<AssignmentView[]>(initialAssignments);
   const [tab, setTab] = useState<'days' | 'ratio'>('days');
-  const [view, setView] = useState<'calendar' | 'list'>('list'); // スマホ既定はリスト
   const [openDate, setOpenDate] = useState<string | null>(null);
 
   const today = new Date();
   const [ym, setYm] = useState({ year: today.getFullYear(), month: today.getMonth() + 1 });
 
-  // PC ではカレンダー表示を既定にする（読み込み後に判定）
-  useEffect(() => {
-    if (window.matchMedia('(min-width: 640px)').matches) setView('calendar');
-  }, []);
-
-  // 日付ごとにまとめる（カレンダー / リストの両方で使う）
+  // 日付ごとにまとめる（カレンダー表示で使う）
   const byDate = useMemo(() => {
     const map = new Map<string, AssignmentView[]>();
     const order = { all_day: 0, am: 1, pm: 2 } as const;
@@ -48,14 +41,6 @@ export default function DutySection({
     for (const list of map.values()) list.sort((x, y) => order[x.slot] - order[y.slot]);
     return map;
   }, [assignments]);
-
-  // 表示中の月に含まれる日付（リスト表示用）
-  const monthDates = useMemo(() => {
-    const { start, end } = monthRange(ym.year, ym.month);
-    return Array.from(byDate.keys())
-      .filter((d) => d >= start && d <= end)
-      .sort();
-  }, [byDate, ym]);
 
   // 担当率（シーズンごと）
   const seasons = useMemo(() => summarizeAllSeasons(assignments), [assignments]);
@@ -123,22 +108,9 @@ export default function DutySection({
                 Today
               </button>
             </div>
-
-            <div className="flex gap-1 rounded-card bg-neutral-100 p-1 text-xs">
-              <TabButton small active={view === 'calendar'} onClick={() => setView('calendar')}>
-                カレンダー
-              </TabButton>
-              <TabButton small active={view === 'list'} onClick={() => setView('list')}>
-                リスト
-              </TabButton>
-            </div>
           </div>
 
-          {view === 'calendar' ? (
-            <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
-          ) : (
-            <DutyList dates={monthDates} byDate={byDate} onSelectDate={setOpenDate} />
-          )}
+          <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
         </div>
       ) : (
         currentSeason && <RatioChart current={currentSeason} past={pastSeasons} />
