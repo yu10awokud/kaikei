@@ -72,3 +72,24 @@ export type SeasonSummary = {
   unassigned: number; // 担当者未定の件数
   rows: RatioRow[];
 };
+
+/** 更新履歴（バージョン管理） */
+export type ReleaseCategory = 'major' | 'fix';
+
+export const RELEASE_CATEGORY_LABEL: Record<ReleaseCategory, string> = {
+  major: '主要更新',
+  fix: '修正',
+};
+
+export type Release = {
+  id: string;
+  version: string;
+  released_on: string; // 'YYYY-MM-DD'
+  category: ReleaseCategory;
+  /** 1 行 1 項目。改行で区切って保存する */
+  notes: string;
+  author: string;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+};

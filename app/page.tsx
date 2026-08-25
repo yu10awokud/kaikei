@@ -46,11 +46,18 @@ export default async function HomePage() {
         }
       />
 
-      {/* 管理画面へは目立たないリンクで */}
-      <footer className="mt-14 border-t border-line pt-5 text-center">
-        <Link href="/admin" className="text-[11px] text-ink-faint underline underline-offset-2">
-          管理画面
-        </Link>
+      {/* 管理画面とバージョン管理へは目立たないリンクで */}
+      <footer className="mt-14 space-y-2 border-t border-line pt-5 text-center">
+        <div>
+          <Link href="/admin" className="text-[11px] text-ink-faint underline underline-offset-2">
+            管理画面
+          </Link>
+        </div>
+        <div>
+          <Link href="/versions" className="text-[11px] text-ink-faint underline underline-offset-2">
+            バージョン管理
+          </Link>
+        </div>
       </footer>
     </main>
   );

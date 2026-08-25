@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from '@/lib/supabase-server';
 import { ASSIGNMENT_SELECT } from '@/lib/api-helpers';
-import type { AssignmentView, Member, Place } from '@/lib/types';
+import type { AssignmentView, Member, Place, Release } from '@/lib/types';
 
 // ============================================================
 // 画面を最初に表示するときのデータ取得（サーバー側で実行）
@@ -51,4 +51,19 @@ export async function fetchDeletedAssignments(): Promise<AssignmentView[]> {
     .order('date', { ascending: false });
 
   return (data ?? []) as unknown as AssignmentView[];
+}
+
+/** バージョン管理：更新履歴の一覧（新しい順） */
+export async function fetchReleases(): Promise<Release[]> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+
+  const { data } = await supabase
+    .from('releases')
+    .select('*')
+    .eq('is_deleted', false)
+    .order('released_on', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  return (data ?? []) as Release[];
 }
