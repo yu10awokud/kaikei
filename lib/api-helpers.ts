@@ -88,4 +88,4 @@ export function toMessage(error: { message?: string } | null): string {
 
 /** assignments を取得するときの共通 select（部員名・場所名も一緒に取る） */
 export const ASSIGNMENT_SELECT =
-  'id, date, slot, member_id, place_id, note, is_deleted, created_at, updated_at, member:members(id, name, color), place:places(id, name, color, is_off)';
+  'id, date, slot, member_id, custom_member, place_id, note, is_deleted, created_at, updated_at, member:members(id, name, color), place:places(id, name, color, is_off)';

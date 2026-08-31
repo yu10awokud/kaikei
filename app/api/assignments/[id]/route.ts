@@ -23,7 +23,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if ('member_id' in body) {
     if (!isUuidOrNull(body.member_id)) return fail('担当者の指定が正しくありません。');
     patch.member_id = body.member_id ?? null;
+    // 部員を選んだときは自由記述の名前を消す
+    if (patch.member_id) patch.custom_member = null;
   }
+  if ('custom_member' in body) patch.custom_member = cleanText(body.custom_member, 40);
   if ('place_id' in body) {
     if (!isUuidOrNull(body.place_id)) return fail('練習場所の指定が正しくありません。');
     patch.place_id = body.place_id ?? null;

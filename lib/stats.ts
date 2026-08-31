@@ -3,10 +3,13 @@ import { formatSeasonLabel, getSeasonKeyFromDate, listSeasonKeys, type SeasonKey
 
 // ============================================================
 // 担当率の集計
-//   ・member_id が NULL のレコードは集計から除外し、
-//     「未割り当て：n日」として別途数える
+//   ・部員が選ばれていないものは「未割り当て：n日」として別途数える
+//   ・「その他」で名前を直接入力したものは、まとめて 1 行（その他）に数える
 //   ・集計はすべてシーズン（9月始まり）単位
 // ============================================================
+
+/** 「その他（自由記述）」をまとめる際に使うキー */
+const OTHER_KEY = 'other';
 
 export function summarizeSeason(assignments: AssignmentView[], season: SeasonKey): SeasonSummary {
   const inSeason = assignments.filter((a) => getSeasonKeyFromDate(a.date) === season);
@@ -15,22 +18,41 @@ export function summarizeSeason(assignments: AssignmentView[], season: SeasonKey
   let unassigned = 0;
 
   for (const a of inSeason) {
-    if (!a.member_id || !a.member) {
-      unassigned += 1;
+    // 部員が選ばれている場合はその人として数える
+    if (a.member_id && a.member) {
+      const row = counter.get(a.member_id);
+      if (row) {
+        row.count += 1;
+      } else {
+        counter.set(a.member_id, {
+          memberId: a.member_id,
+          name: a.member.name,
+          color: a.member.color,
+          count: 1,
+          percent: 0,
+        });
+      }
       continue;
     }
-    const row = counter.get(a.member_id);
-    if (row) {
-      row.count += 1;
-    } else {
-      counter.set(a.member_id, {
-        memberId: a.member_id,
-        name: a.member.name,
-        color: a.member.color,
-        count: 1,
-        percent: 0,
-      });
+
+    // 「その他」で名前を直接入力した場合は、まとめて 1 つに数える
+    if (a.custom_member) {
+      const row = counter.get(OTHER_KEY);
+      if (row) {
+        row.count += 1;
+      } else {
+        counter.set(OTHER_KEY, {
+          memberId: OTHER_KEY,
+          name: 'その他',
+          color: '#8A97A3',
+          count: 1,
+          percent: 0,
+        });
+      }
+      continue;
     }
+
+    unassigned += 1;
   }
 
   const rows = Array.from(counter.values()).sort((x, y) => y.count - x.count || x.name.localeCompare(y.name));

@@ -44,18 +44,19 @@ export async function POST(req: Request) {
 
   const body = await readJson(req);
   const { date, member_id = null, place_id = null, note } = body;
+  const custom_member = member_id ? null : cleanText(body.custom_member, 40);
   const slot = body.slot ?? 'all_day';
 
   if (!isDateKey(date)) return fail('日付の形式が正しくありません（YYYY-MM-DD）。');
   if (!isSlot(slot)) return fail('枠の指定が正しくありません（all_day / am / pm）。');
   if (!isUuidOrNull(member_id) || !isUuidOrNull(place_id)) return fail('担当者・場所の指定が正しくありません。');
-  if (member_id === null && place_id === null) {
+  if (member_id === null && custom_member === null && place_id === null) {
     return fail('担当者か練習場所のどちらか一方は選んでください。');
   }
 
   const { data, error } = await supabase
     .from('assignments')
-    .insert({ date, slot, member_id, place_id, note: cleanText(note) })
+    .insert({ date, slot, member_id, custom_member, place_id, note: cleanText(note) })
     .select(ASSIGNMENT_SELECT)
     .single();
 

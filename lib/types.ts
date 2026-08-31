@@ -42,12 +42,30 @@ export type Assignment = {
   date: string; // 'YYYY-MM-DD'
   slot: Slot;
   member_id: string | null; // null = 担当者未定（正常な状態）
+  /** 部員マスタに無い人を「その他」として自由記述したときの名前 */
+  custom_member: string | null;
   place_id: string | null; // null = 場所未定
   note: string | null;
   is_deleted: boolean;
   created_at: string;
   updated_at: string;
 };
+
+/** カレンダー等に出す担当者名。部員 → 自由記述 → 未定 の順で決める */
+export function displayMemberName(a: {
+  member: { name: string } | null;
+  custom_member: string | null;
+}): string {
+  return a.member?.name ?? a.custom_member ?? '未定';
+}
+
+/** 担当者が決まっているか（自由記述も「決まっている」とみなす） */
+export function hasMember(a: {
+  member: { name: string } | null;
+  custom_member: string | null;
+}): boolean {
+  return Boolean(a.member || a.custom_member);
+}
 
 /** 画面表示用に、部員名と場所名を埋めた割り当て */
 export type AssignmentView = Assignment & {
@@ -57,6 +75,7 @@ export type AssignmentView = Assignment & {
 
 /** 担当率タブで使う集計結果の 1 行 */
 export type RatioRow = {
+  /** 部員は members.id、「その他」はまとめて 'other' */
   memberId: string;
   name: string;
   color: string;

@@ -1,4 +1,4 @@
-import type { AssignmentView } from '@/lib/types';
+import { displayMemberName, hasMember, type AssignmentView } from '@/lib/types';
 
 // ============================================================
 // カレンダーのマスに並ぶ 1 件分のカード
@@ -14,7 +14,9 @@ export default function AssignmentCard({
   assignment: AssignmentView;
   compact?: boolean;
 }) {
-  const { slot, member, place } = assignment;
+  const { slot, place } = assignment;
+  const memberName = displayMemberName(assignment);
+  const decided = hasMember(assignment);
   const slotLabel = slot === 'am' ? '午前' : slot === 'pm' ? '午後' : null;
 
   // オフの日
@@ -45,9 +47,9 @@ export default function AssignmentCard({
       <div
         className={`truncate font-bold ${
           compact ? 'text-[11px] leading-snug' : 'text-sm'
-        } ${member ? 'text-ink' : 'font-medium text-ink-faint'}`}
+        } ${decided ? 'text-ink' : 'font-medium text-ink-faint'}`}
       >
-        {member ? member.name : '未定'}
+        {memberName}
       </div>
 
       {/* 2 段目：練習場所（控えめに） */}

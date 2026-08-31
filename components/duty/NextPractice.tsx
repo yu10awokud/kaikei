@@ -1,7 +1,7 @@
 'use client';
 
 import { formatDateWithWeekday, todayKey } from '@/lib/date';
-import type { AssignmentView } from '@/lib/types';
+import { displayMemberName, type AssignmentView } from '@/lib/types';
 
 // ============================================================
 // 次回の練習
@@ -87,7 +87,7 @@ export default function NextPractice({
 
                   <div className="text-[11px] font-medium tracking-wide text-white/70">担当者</div>
                   <div className="mt-0.5 truncate text-2xl font-bold leading-tight">
-                    {a.member ? a.member.name : '未定'}
+                    {displayMemberName(a)}
                   </div>
 
                   {a.place && (

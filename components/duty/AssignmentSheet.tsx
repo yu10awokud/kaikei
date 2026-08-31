@@ -13,19 +13,30 @@ import type { AssignmentView, Member, Place, Slot } from '@/lib/types';
 //   ・削除は論理削除。実行前に確認ダイアログを出す
 // ============================================================
 
-type Draft = { member_id: string; place_id: string; note: string };
+type Draft = { member_id: string; custom_member: string; place_id: string; note: string };
 
-const EMPTY: Draft = { member_id: '', place_id: '', note: '' };
+const EMPTY: Draft = { member_id: '', custom_member: '', place_id: '', note: '' };
+
+/** 担当者プルダウンで「その他」を選んだときの値 */
+const OTHER = '__other__';
 
 function toDraft(a: AssignmentView | undefined): Draft {
   if (!a) return { ...EMPTY };
-  return { member_id: a.member_id ?? '', place_id: a.place_id ?? '', note: a.note ?? '' };
+  return {
+    // 部員が未選択で自由記述の名前があるときは「その他」を選んだ状態にする
+    member_id: a.member_id ?? (a.custom_member ? OTHER : ''),
+    custom_member: a.custom_member ?? '',
+    place_id: a.place_id ?? '',
+    note: a.note ?? '',
+  };
 }
 
 /** 送信用に空文字を null へ変換 */
 function toPayload(d: Draft) {
+  const isOther = d.member_id === OTHER;
   return {
-    member_id: d.member_id || null,
+    member_id: isOther ? null : d.member_id || null,
+    custom_member: isOther ? d.custom_member.trim() || null : null,
     place_id: d.place_id || null,
     note: d.note.trim() || null,
   };
@@ -346,7 +357,19 @@ function SlotFields({
                   {m.name}
                 </option>
               ))}
+              <option value={OTHER}>その他（名前を入力）</option>
             </select>
+
+            {/* 「その他」を選んだときだけ名前を入力する */}
+            {draft.member_id === OTHER && (
+              <input
+                type="text"
+                className="field mt-2"
+                value={draft.custom_member}
+                placeholder="名前を入力（例：OBの田中さん）"
+                onChange={(e) => setDraft({ ...draft, custom_member: e.target.value })}
+              />
+            )}
           </div>
         )}
 
@@ -359,7 +382,12 @@ function SlotFields({
               const nextId = e.target.value;
               const nextIsOff = places.some((p) => p.id === nextId && p.is_off);
               // オフに変えたときは担当者を外す
-              setDraft({ ...draft, place_id: nextId, member_id: nextIsOff ? '' : draft.member_id });
+              setDraft({
+                ...draft,
+                place_id: nextId,
+                member_id: nextIsOff ? '' : draft.member_id,
+                custom_member: nextIsOff ? '' : draft.custom_member,
+              });
             }}
           >
             <option value="">未定</option>

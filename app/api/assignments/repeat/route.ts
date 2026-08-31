@@ -65,6 +65,7 @@ export async function POST(req: Request) {
         date,
         slot: 'all_day',
         member_id: null, // 担当者は未定のまま
+        custom_member: null,
         place_id,
         note: null,
       }))

@@ -1,7 +1,7 @@
 'use client';
 
 import { addDays, formatDateWithWeekday, todayKey } from '@/lib/date';
-import type { AssignmentView } from '@/lib/types';
+import { displayMemberName, hasMember, type AssignmentView } from '@/lib/types';
 
 // ============================================================
 // 直近1週間の担当一覧
@@ -77,10 +77,10 @@ export default function UpcomingList({
                         <>
                           <span
                             className={`text-sm font-bold ${
-                              a.member ? 'text-ink' : 'font-medium text-ink-faint'
+                              hasMember(a) ? 'text-ink' : 'font-medium text-ink-faint'
                             }`}
                           >
-                            {a.member ? a.member.name : '未定'}
+                            {displayMemberName(a)}
                           </span>
                           {a.place && (
                             <span

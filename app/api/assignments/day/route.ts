@@ -25,7 +25,12 @@ export const dynamic = 'force-dynamic';
 //   ・これにより「終日と午前/午後の同居」は構造的に起きない
 // ============================================================
 
-type Entry = { member_id: string | null; place_id: string | null; note: string | null };
+type Entry = {
+  member_id: string | null;
+  custom_member: string | null;
+  place_id: string | null;
+  note: string | null;
+};
 
 function parseEntry(value: unknown): Entry | null | 'invalid' {
   if (value === null || value === undefined) return null;
@@ -35,12 +40,16 @@ function parseEntry(value: unknown): Entry | null | 'invalid' {
   if (!isUuidOrNull(v.member_id) || !isUuidOrNull(v.place_id)) return 'invalid';
 
   const member_id = (v.member_id as string | null) ?? null;
+  const custom_member = cleanText(v.custom_member, 40);
   const place_id = (v.place_id as string | null) ?? null;
   const note = cleanText(v.note);
 
   // 担当者も場所も未選択なら「その枠は無し」とみなす
-  if (member_id === null && place_id === null && note === null) return null;
-  return { member_id, place_id, note };
+  if (member_id === null && custom_member === null && place_id === null && note === null) {
+    return null;
+  }
+  // 部員を選んだときは自由記述の名前は残さない
+  return { member_id, custom_member: member_id ? null : custom_member, place_id, note };
 }
 
 export async function PUT(req: Request) {

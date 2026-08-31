@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { formatDateWithWeekday } from '@/lib/date';
-import { SLOT_LABEL, type AssignmentView } from '@/lib/types';
+import { SLOT_LABEL, displayMemberName, type AssignmentView } from '@/lib/types';
 
 // 管理画面：論理削除された割り当ての一覧と復元
 export default function DeletedAssignments({ initialItems }: { initialItems: AssignmentView[] }) {
@@ -48,7 +48,7 @@ export default function DeletedAssignments({ initialItems }: { initialItems: Ass
                 <span className="ml-2 text-xs font-normal text-ink-faint">{SLOT_LABEL[a.slot]}</span>
               </div>
               <div className="truncate text-xs text-ink-soft">
-                {a.member?.name ?? '未定'}
+                {displayMemberName(a)}
                 {a.place ? ` ／ ${a.place.name}` : ''}
                 {a.note ? ` ／ ${a.note}` : ''}
               </div>
