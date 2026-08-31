@@ -1,4 +1,4 @@
-import { getSupabaseAdmin } from '@/lib/supabase-server';
+import { getSupabaseAdmin, normalizeUrl } from '@/lib/supabase-server';
 import { ASSIGNMENT_SELECT } from '@/lib/api-helpers';
 import type { AssignmentView, Member, MenuFile, MenuFileView, Place, Release } from '@/lib/types';
 
@@ -70,7 +70,8 @@ export async function fetchReleases(): Promise<Release[]> {
 
 /** 添付PDFを開くための URL を組み立てる */
 export function menuFileUrl(storagePath: string): string {
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
+  // 環境変数に /rest/v1 などのパスが混ざっていても、ホスト部分だけを使う
+  const base = normalizeUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) ?? '';
   return `${base}/storage/v1/object/public/menus/${storagePath}`;
 }
 

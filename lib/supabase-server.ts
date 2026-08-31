@@ -13,12 +13,13 @@ let cached: SupabaseClient | null = null;
 
 /**
  * 環境変数に入れた URL のゆらぎを吸収する。
+ * （DB接続だけでなく、ファイルの URL を組み立てるときにも使う）
  *   ・前後の空白／引用符を取り除く
  *   ・末尾のスラッシュを取り除く（'…supabase.co/' だと '//rest/v1' になり
  *     「Invalid path specified in request URL」というエラーになるため）
  *   ・'/rest/v1' などのパスを間違って付けていた場合も取り除く
  */
-function normalizeUrl(raw: string | undefined): string | null {
+export function normalizeUrl(raw: string | undefined): string | null {
   if (!raw) return null;
 
   const trimmed = raw.trim().replace(/^['"]|['"]$/g, '');
