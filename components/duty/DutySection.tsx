@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import SectionHeader from '@/components/SectionHeader';
 import AssignmentSheet from '@/components/duty/AssignmentSheet';
 import MonthCalendar from '@/components/duty/MonthCalendar';
@@ -27,9 +27,30 @@ export default function DutySection({
   const [assignments, setAssignments] = useState<AssignmentView[]>(initialAssignments);
   const [tab, setTab] = useState<'days' | 'ratio'>('days');
   const [openDate, setOpenDate] = useState<string | null>(null);
+  // メニューPDF が添付されている日付（カレンダーに印を出すため）
+  const [fileDates, setFileDates] = useState<Set<string>>(new Set());
 
   const today = new Date();
   const [ym, setYm] = useState({ year: today.getFullYear(), month: today.getMonth() + 1 });
+
+  // 添付PDFのある日付を読み込む（モーダルを閉じたタイミングでも取り直す）
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/menu-files');
+        const json = await res.json();
+        if (alive && res.ok) {
+          setFileDates(new Set((json.files ?? []).map((f: { date: string }) => f.date)));
+        }
+      } catch {
+        // 取得できなくてもカレンダー自体は表示する
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [openDate]);
 
   // 日付ごとにまとめる（カレンダー表示で使う）
   const byDate = useMemo(() => {
@@ -129,7 +150,13 @@ export default function DutySection({
 
           {/* カレンダーが主役。その下に直近1週間を並べる（PC でも縦積み） */}
           <div className="space-y-3">
-            <MonthCalendar year={ym.year} month={ym.month} byDate={byDate} onSelectDate={setOpenDate} />
+            <MonthCalendar
+              year={ym.year}
+              month={ym.month}
+              byDate={byDate}
+              fileDates={fileDates}
+              onSelectDate={setOpenDate}
+            />
             <UpcomingList byDate={byDate} onSelectDate={setOpenDate} />
           </div>
         </div>

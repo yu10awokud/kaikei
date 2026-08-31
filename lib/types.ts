@@ -93,3 +93,19 @@ export type Release = {
   created_at: string;
   updated_at: string;
 };
+
+/** 練習日に添付したメニューPDF */
+export type MenuFile = {
+  id: string;
+  date: string; // 'YYYY-MM-DD'
+  file_name: string;
+  storage_path: string;
+  size_bytes: number;
+  note: string | null;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** 画面表示用に、開くための URL を足したもの */
+export type MenuFileView = MenuFile & { url: string };

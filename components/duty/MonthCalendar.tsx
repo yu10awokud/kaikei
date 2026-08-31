@@ -14,11 +14,14 @@ export default function MonthCalendar({
   year,
   month,
   byDate,
+  fileDates,
   onSelectDate,
 }: {
   year: number;
   month: number;
   byDate: Map<string, AssignmentView[]>;
+  /** メニューPDF が添付されている日付 */
+  fileDates?: Set<string>;
   onSelectDate: (dateKey: string) => void;
 }) {
   const cells = buildCalendarCells(year, month);
@@ -59,8 +62,8 @@ export default function MonthCalendar({
               `}
               aria-label={`${cell.key} の割り当てを編集`}
             >
-              {/* 日付 */}
-              <div className="mb-1 flex justify-center sm:justify-start">
+              {/* 日付（PDF添付がある日は右上に小さな点を出す） */}
+              <div className="mb-1 flex items-center justify-center gap-1 sm:justify-start">
                 <span
                   className={`font-en inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-semibold sm:text-xs ${
                     isToday
@@ -76,6 +79,12 @@ export default function MonthCalendar({
                 >
                   {cell.day}
                 </span>
+                {fileDates?.has(cell.key) && (
+                  <span
+                    aria-label="メニューPDFあり"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-aqua-400"
+                  />
+                )}
               </div>
 
               {/* 担当カード */}

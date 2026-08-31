@@ -1,17 +1,19 @@
 import Link from 'next/link';
 import DeletedAssignments from '@/components/admin/DeletedAssignments';
+import DeletedMenuFiles from '@/components/admin/DeletedMenuFiles';
 import MasterAdmin from '@/components/admin/MasterAdmin';
 import SectionHeader from '@/components/SectionHeader';
-import { fetchDeletedAssignments, fetchInitialData } from '@/lib/queries';
+import { fetchDeletedAssignments, fetchDeletedMenuFiles, fetchInitialData } from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: '管理画面 ｜ メニュー特戦隊' };
 
 export default async function AdminPage() {
-  const [{ members, places, configured }, deleted] = await Promise.all([
+  const [{ members, places, configured }, deleted, deletedFiles] = await Promise.all([
     fetchInitialData(),
     fetchDeletedAssignments(),
+    fetchDeletedMenuFiles(),
   ]);
 
   return (
@@ -48,6 +50,15 @@ export default async function AdminPage() {
       <section>
         <SectionHeader title="削除した割り当て" en="Deleted" description="削除は取り消せます。復元すると担当日に戻ります。" />
         <DeletedAssignments initialItems={deleted} />
+      </section>
+
+      <section>
+        <SectionHeader
+          title="削除したメニューPDF"
+          en="Deleted PDF"
+          description="削除は取り消せます。復元するとその日のメニューに戻ります。"
+        />
+        <DeletedMenuFiles initialItems={deletedFiles} />
       </section>
     </main>
   );

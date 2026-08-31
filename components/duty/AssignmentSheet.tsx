@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import MenuFiles from '@/components/duty/MenuFiles';
 import { addDays, formatDateWithWeekday, monthRange, weekdayOf } from '@/lib/date';
 import { getSeasonKeyFromDate, getSeasonRange } from '@/lib/season';
 import type { AssignmentView, Member, Place, Slot } from '@/lib/types';
@@ -267,6 +268,9 @@ export default function AssignmentSheet({
             )}
           </div>
         )}
+
+        {/* その日のメニューPDF */}
+        <MenuFiles dateKey={dateKey} />
 
         {result && (
           <p className="mt-3 rounded-card border border-line bg-aqua-50 px-3 py-2 text-sm">{result}</p>
