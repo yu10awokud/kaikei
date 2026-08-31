@@ -102,3 +102,36 @@ export async function fetchDeletedMenuFiles(): Promise<MenuFileView[]> {
 
   return ((data ?? []) as MenuFile[]).map((f) => ({ ...f, url: menuFileUrl(f.storage_path) }));
 }
+
+/** archive ページ用：メニューPDFと、その日の担当情報をまとめて取る */
+export async function fetchArchiveData(): Promise<{
+  files: MenuFileView[];
+  assignments: AssignmentView[];
+  members: Member[];
+  places: Place[];
+}> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return { files: [], assignments: [], members: [], places: [] };
+
+  const [filesRes, assignmentsRes, membersRes, placesRes] = await Promise.all([
+    supabase
+      .from('menu_files')
+      .select('*')
+      .eq('is_deleted', false)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false }),
+    supabase.from('assignments').select(ASSIGNMENT_SELECT).eq('is_deleted', false),
+    supabase.from('members').select('*').order('sort_order').order('created_at'),
+    supabase.from('places').select('*').order('sort_order').order('created_at'),
+  ]);
+
+  return {
+    files: ((filesRes.data ?? []) as MenuFile[]).map((f) => ({
+      ...f,
+      url: menuFileUrl(f.storage_path),
+    })),
+    assignments: (assignmentsRes.data ?? []) as unknown as AssignmentView[],
+    members: (membersRes.data ?? []) as Member[],
+    places: (placesRes.data ?? []) as Place[],
+  };
+}

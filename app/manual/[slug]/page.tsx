@@ -1,10 +1,16 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import MenuArchive from '@/components/archive/MenuArchive';
 import {
   MANUAL_META, MANUAL_SLUGS, isManualSlug, markdownToHtml, readManualMarkdown,
 } from '@/lib/markdown';
+import { fetchArchiveData } from '@/lib/queries';
 
-// 3 枚のカードに対応する個別ページ（本文は content/*.md をビルド時に読み込む）
+// 3 枚のカードに対応する個別ページ
+//   usage / tips は content/*.md の本文を表示する
+//   archive はアップロード済みのメニューPDF一覧を表示する（常に最新を出す）
+export const dynamic = 'force-dynamic';
+
 export function generateStaticParams() {
   return MANUAL_SLUGS.map((slug) => ({ slug }));
 }
@@ -15,6 +21,7 @@ export default async function ManualPage({ params }: { params: Promise<{ slug: s
 
   const meta = MANUAL_META[slug];
   const html = markdownToHtml(readManualMarkdown(slug));
+  const archive = slug === 'archive' ? await fetchArchiveData() : null;
 
   return (
     <main>
@@ -40,7 +47,21 @@ export default async function ManualPage({ params }: { params: Promise<{ slug: s
         </div>
       </div>
 
-      <article className="mt-6 text-sm" dangerouslySetInnerHTML={{ __html: html }} />
+      {archive ? (
+        <div className="mt-6">
+          {html && (
+            <article className="mb-6 text-sm" dangerouslySetInnerHTML={{ __html: html }} />
+          )}
+          <MenuArchive
+            files={archive.files}
+            assignments={archive.assignments}
+            members={archive.members}
+            places={archive.places}
+          />
+        </div>
+      ) : (
+        <article className="mt-6 text-sm" dangerouslySetInnerHTML={{ __html: html }} />
+      )}
     </main>
   );
 }

@@ -45,7 +45,7 @@ export const MANUAL_META: Record<
   },
   archive: {
     title: 'archive',
-    subtitle: '過去の資料',
+    subtitle: '過去のメニュー',
     icon: '03',
     tint: '#F0EEE9', // 薄いグレージュ
   },
