@@ -9,15 +9,18 @@ import { useState } from 'react';
 export default function HomeTabs({
   home,
   manual,
+  notice,
 }: {
   home: React.ReactNode;
   manual: React.ReactNode;
+  /** タブの下に出すお知らせ（無ければ何も出ない） */
+  notice?: React.ReactNode;
 }) {
   const [tab, setTab] = useState<'home' | 'manual'>('home');
 
   return (
     <div>
-      <div className="mb-8 grid grid-cols-2 gap-2">
+      <div className="mb-3 grid grid-cols-2 gap-2">
         <TabButton active={tab === 'home'} onClick={() => setTab('home')}>
           ホーム
         </TabButton>
@@ -25,6 +28,8 @@ export default function HomeTabs({
           マニュアル
         </TabButton>
       </div>
+
+      {notice ? <div className="mb-8">{notice}</div> : <div className="mb-8" />}
 
       {tab === 'home' ? home : manual}
     </div>

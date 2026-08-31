@@ -1,6 +1,8 @@
 import { getSupabaseAdmin, normalizeUrl } from '@/lib/supabase-server';
 import { ASSIGNMENT_SELECT } from '@/lib/api-helpers';
-import type { AssignmentView, Member, MenuFile, MenuFileView, Place, Release } from '@/lib/types';
+import type {
+  AssignmentView, Member, MenuFile, MenuFileView, Notice, Place, Release,
+} from '@/lib/types';
 
 // ============================================================
 // 画面を最初に表示するときのデータ取得（サーバー側で実行）
@@ -135,4 +137,33 @@ export async function fetchArchiveData(): Promise<{
     members: (membersRes.data ?? []) as Member[],
     places: (placesRes.data ?? []) as Place[],
   };
+}
+
+/** お知らせ（表示中のものだけ。トップページ用） */
+export async function fetchVisibleNotices(): Promise<Notice[]> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+
+  const { data } = await supabase
+    .from('notices')
+    .select('*')
+    .eq('is_visible', true)
+    .order('sort_order')
+    .order('created_at');
+
+  return (data ?? []) as Notice[];
+}
+
+/** お知らせ（非表示も含めた全件。管理画面用） */
+export async function fetchAllNotices(): Promise<Notice[]> {
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+
+  const { data } = await supabase
+    .from('notices')
+    .select('*')
+    .order('sort_order')
+    .order('created_at');
+
+  return (data ?? []) as Notice[];
 }

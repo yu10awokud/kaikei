@@ -1,17 +1,21 @@
 import Link from 'next/link';
 import HomeTabs from '@/components/HomeTabs';
+import NoticeBar from '@/components/notices/NoticeBar';
 import SiteHeader from '@/components/SiteHeader';
 import DutySection from '@/components/duty/DutySection';
 import LinksSection from '@/components/links/LinksSection';
 import ManualCards from '@/components/manual/ManualCards';
 import TemplateSection from '@/components/template/TemplateSection';
-import { fetchInitialData } from '@/lib/queries';
+import { fetchInitialData, fetchVisibleNotices } from '@/lib/queries';
 
 // 常に最新のデータを表示する（キャッシュしない）
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  const { members, places, assignments, configured, error } = await fetchInitialData();
+  const [{ members, places, assignments, configured, error }, notices] = await Promise.all([
+    fetchInitialData(),
+    fetchVisibleNotices(),
+  ]);
 
   return (
     <main>
@@ -26,6 +30,7 @@ export default async function HomePage() {
       )}
 
       <HomeTabs
+        notice={<NoticeBar notices={notices} />}
         home={
           <div className="space-y-12">
             {/* 次回の練習 ＋ カレンダー ＋ 直近1週間 */}

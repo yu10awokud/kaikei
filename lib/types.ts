@@ -128,3 +128,13 @@ export type MenuFile = {
 
 /** 画面表示用に、開くための URL を足したもの */
 export type MenuFileView = MenuFile & { url: string };
+
+/** トップページのお知らせ */
+export type Notice = {
+  id: string;
+  body: string;
+  is_visible: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};

@@ -1,19 +1,23 @@
 import Link from 'next/link';
 import DeletedAssignments from '@/components/admin/DeletedAssignments';
 import DeletedMenuFiles from '@/components/admin/DeletedMenuFiles';
+import NoticesAdmin from '@/components/admin/NoticesAdmin';
 import MasterAdmin from '@/components/admin/MasterAdmin';
 import SectionHeader from '@/components/SectionHeader';
-import { fetchDeletedAssignments, fetchDeletedMenuFiles, fetchInitialData } from '@/lib/queries';
+import {
+  fetchAllNotices, fetchDeletedAssignments, fetchDeletedMenuFiles, fetchInitialData,
+} from '@/lib/queries';
 
 export const dynamic = 'force-dynamic';
 
 export const metadata = { title: '管理画面 ｜ メニュー特戦隊' };
 
 export default async function AdminPage() {
-  const [{ members, places, configured }, deleted, deletedFiles] = await Promise.all([
+  const [{ members, places, configured }, deleted, deletedFiles, notices] = await Promise.all([
     fetchInitialData(),
     fetchDeletedAssignments(),
     fetchDeletedMenuFiles(),
+    fetchAllNotices(),
   ]);
 
   return (
@@ -33,6 +37,15 @@ export default async function AdminPage() {
           Supabase の環境変数が未設定です（.env.local を確認してください）。
         </p>
       )}
+
+      <section>
+        <SectionHeader
+          title="お知らせ"
+          en="Notice"
+          description="トップページのタブの下に表示されます。表示のチェックを外すと、消さずに隠せます。"
+        />
+        <NoticesAdmin initialNotices={notices} />
+      </section>
 
       <section>
         <SectionHeader
