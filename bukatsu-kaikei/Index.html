@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <?!= include('Stylesheet'); ?>
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>部活会計</h1>
+      <div class="month-nav">
+        <button id="prevMonth" class="nav-btn">‹</button>
+        <span id="currentMonthLabel">----年--月</span>
+        <button id="nextMonth" class="nav-btn">›</button>
+      </div>
+    </header>
+
+    <!-- タブ -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="dashboard">💰 残高</button>
+      <button class="tab" data-tab="practice">🏊 練習日</button>
+      <button class="tab" data-tab="charge">💴 チャージ</button>
+      <button class="tab" data-tab="event">🎉 イベント</button>
+      <button class="tab" data-tab="external">🤝 外部参加</button>
+      <button class="tab" data-tab="attend">📈 出席</button>
+      <button class="tab" data-tab="master">⚙️ マスタ</button>
+    </nav>
+
+    <!-- ===== 残高（ダッシュボード） ===== -->
+    <section id="dashboard" class="panel active">
+      <div class="stat-cards">
+        <div class="stat"><div class="stat-label">部員数</div><div class="stat-value" id="sumMembers">—</div></div>
+        <div class="stat"><div class="stat-label">残高合計</div><div class="stat-value" id="sumBalance">—</div></div>
+        <div class="stat"><div class="stat-label">マイナスの人</div><div class="stat-value" id="sumNegative">—</div></div>
+      </div>
+      <div class="pdf-bar">
+        <button id="pdfBtn" class="primary sm">📄 現在の残高状況をPDFで発行</button>
+      </div>
+      <div class="rank-cards">
+        <div class="rank-card rich">
+          <div class="rank-title">💰 富豪ランキング</div>
+          <ol id="richList" class="rank-list"></ol>
+        </div>
+        <div class="rank-card debt">
+          <div class="rank-title">🔻 借金ランキング</div>
+          <ol id="debtList" class="rank-list"></ol>
+        </div>
+      </div>
+
+      <h3 class="section-title">全員の残高</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>氏名</th><th class="num">チャージ</th><th class="num">支払</th><th class="num">残高</th></tr>
+        </thead>
+        <tbody id="balanceTableBody"></tbody>
+      </table>
+    </section>
+
+    <!-- ===== 練習日（①日程 ②出席 ③精算） ===== -->
+    <section id="practice" class="panel">
+      <div class="practice-head">
+        <input type="date" id="practiceDate">
+      </div>
+
+      <div class="practice-pool">
+        <label>使用プール</label>
+        <div class="pool-row">
+          <select id="practicePool"></select>
+          <button id="savePoolBtn" class="primary sm">設定</button>
+        </div>
+        <div id="practiceStatus" class="status-line"></div>
+      </div>
+
+      <div class="attend-head">
+        <h3 class="section-title" style="margin:0;">出席（タップで切替）</h3>
+        <button id="allPresentBtn" class="ghost sm">全員出席</button>
+      </div>
+      <div id="attendList" class="attend-list"></div>
+
+      <div class="practice-actions">
+        <button id="saveAttendBtn" class="primary">出席を保存</button>
+        <button id="settleBtn" class="warn">この日を精算する</button>
+        <button id="unsettleBtn" class="ghost" style="display:none;">精算を取り消す</button>
+      </div>
+    </section>
+
+    <!-- ===== チャージ（④） ===== -->
+    <section id="charge" class="panel">
+      <div class="charge-add">
+        <select id="chargeMember"></select>
+        <input type="number" id="chargeAmount" placeholder="金額（円）">
+        <input type="date" id="chargeDate">
+        <input type="text" id="chargeMemo" placeholder="メモ（任意）">
+        <button id="chargeAddBtn" class="primary">チャージ追加</button>
+      </div>
+      <div class="month-sum" id="chargeMonthSum">今月のチャージ合計: ¥0</div>
+      <table class="data-table">
+        <thead>
+          <tr><th>日付</th><th>部員</th><th class="num">金額</th><th>メモ</th><th></th></tr>
+        </thead>
+        <tbody id="chargeTableBody"></tbody>
+      </table>
+    </section>
+
+    <!-- ===== イベント会計 ===== -->
+    <section id="event" class="panel">
+      <div class="event-head">
+        <h3 class="section-title" style="margin:0;">イベント一覧</h3>
+        <button id="addEventBtn" class="primary sm">＋ イベントを作成</button>
+      </div>
+      <p class="hint">新歓コンパ・追いコンなど。精算すると参加者のプリペイド残高から1人あたり金額が引かれます。</p>
+      <div id="eventList" class="event-list"></div>
+    </section>
+
+    <!-- ===== 外部参加（他大学の立替台帳） ===== -->
+    <section id="external" class="panel">
+      <div class="ext-add">
+        <input type="date" id="extDate">
+        <input type="text" id="extName" placeholder="氏名">
+        <input type="text" id="extOrg" placeholder="所属（大学名など）">
+        <select id="extPool"></select>
+        <input type="number" id="extAmount" placeholder="金額（円）">
+        <select id="extMethod">
+          <option value="立替">立替</option>
+          <option value="現金">現金</option>
+          <option value="PayPay">PayPay</option>
+          <option value="その他">その他</option>
+        </select>
+        <input type="text" id="extMemo" placeholder="メモ（任意）">
+        <button id="extAddBtn" class="primary">記録を追加</button>
+      </div>
+      <div class="month-sum" id="extUnpaid">未回収の立替: ¥0</div>
+      <table class="data-table">
+        <thead>
+          <tr><th>日付</th><th>氏名/所属</th><th>プール</th><th class="num">金額</th><th>決済</th><th>状態</th><th></th></tr>
+        </thead>
+        <tbody id="extTableBody"></tbody>
+      </table>
+    </section>
+
+    <!-- ===== 出席ランキング（⑥） ===== -->
+    <section id="attend" class="panel">
+      <div class="month-sum" id="attendTotalDays">今月の練習日数: 0日</div>
+      <table class="data-table">
+        <thead>
+          <tr><th>順位</th><th>氏名</th><th class="num">出席回数</th></tr>
+        </thead>
+        <tbody id="attendRankBody"></tbody>
+      </table>
+    </section>
+
+    <!-- ===== マスタ（部員・プール） ===== -->
+    <section id="master" class="panel">
+      <h3 class="section-title">部員マスタ</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>氏名</th><th>学年</th><th>学科</th><th>区分</th><th>状態</th><th></th></tr>
+        </thead>
+        <tbody id="memberTableBody"></tbody>
+      </table>
+      <button id="addMemberBtn" class="primary sm" style="margin-top:10px;">＋ 部員を追加</button>
+
+      <h3 class="section-title" style="margin-top:26px;">プール代マスタ</h3>
+      <table class="data-table">
+        <thead>
+          <tr><th>プール名</th><th class="num">1人あたり料金</th><th></th></tr>
+        </thead>
+        <tbody id="poolTableBody"></tbody>
+      </table>
+      <button id="addPoolBtn" class="primary sm" style="margin-top:10px;">＋ プールを追加</button>
+    </section>
+  </div>
+
+  <!-- 部員編集モーダル -->
+  <div id="memberModal" class="modal-overlay">
+    <div class="modal">
+      <h3 id="memberModalTitle">部員</h3>
+      <div class="form-grid">
+        <label>氏名</label><input type="text" id="mName">
+        <label>学年</label><input type="text" id="mGrade" placeholder="例: 2年">
+        <label>学科</label><input type="text" id="mDept">
+        <label>区分</label>
+        <select id="mRole"><option value="プレ">プレ（選手）</option><option value="マネ">マネ（マネージャー）</option></select>
+        <label>状態</label>
+        <select id="mStatus"><option value="現役">現役</option><option value="引退">引退</option></select>
+      </div>
+      <div class="modal-footer">
+        <button id="mDeleteBtn" class="del-btn">削除</button>
+        <span class="grow"></span>
+        <button id="mCancelBtn">キャンセル</button>
+        <button id="mSaveBtn" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- プール編集モーダル -->
+  <div id="poolModal" class="modal-overlay">
+    <div class="modal">
+      <h3 id="poolModalTitle">プール</h3>
+      <div class="form-grid">
+        <label>プール名</label><input type="text" id="pName">
+        <label>料金(円)</label><input type="number" id="pPrice">
+        <label>マネも徴収</label>
+        <label class="check-label"><input type="checkbox" id="pChargeMane"> このプールはマネさんからも徴収する</label>
+      </div>
+      <div class="modal-footer">
+        <button id="pDeleteBtn" class="del-btn">削除</button>
+        <span class="grow"></span>
+        <button id="pCancelBtn">キャンセル</button>
+        <button id="pSaveBtn" class="primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- イベント編集モーダル -->
+  <div id="eventModal" class="modal-overlay">
+    <div class="modal">
+      <h3 id="eventModalTitle">イベント</h3>
+      <div class="form-grid">
+        <label>イベント名</label><input type="text" id="evName" placeholder="例: 新歓コンパ">
+        <label>日付</label><input type="date" id="evDate">
+        <label>用途</label><input type="text" id="evPurpose" placeholder="例: 会場費・飲食代">
+      </div>
+
+      <div class="form-grid" style="margin-top:4px;">
+        <label>1人あたり</label><input type="number" id="evAmount" placeholder="基本の金額（円・0も可）" min="0">
+      </div>
+
+      <!-- 参加者：全員参加が前提。欠席者だけを指定する -->
+      <div class="ev-part-head">
+        <span class="fld-label" style="margin:0;">参加者</span>
+        <span id="evPartSummary" class="part-summary">—</span>
+      </div>
+      <div class="exc-add" id="evAbsentAddRow">
+        <select id="evAbsentSel"></select>
+        <button type="button" id="evAbsentAddBtn" class="ghost sm">欠席にする</button>
+      </div>
+      <div id="evAbsentChips" class="chips"></div>
+
+      <!-- 金額の例外：違う人だけ追加。空なら全員が基本額 -->
+      <label class="fld-label">金額が違う人（いる場合だけ追加）</label>
+      <div class="exc-add" id="evExcAddRow">
+        <select id="evExcSel"></select>
+        <input type="number" id="evExcAmount" placeholder="金額（円）">
+        <button type="button" id="evExcAddBtn" class="ghost sm">追加</button>
+      </div>
+      <div id="evExcList"></div>
+      <p id="evSettledNote" class="hint" style="display:none;color:#d97706;">精算済みのため編集できません。変更するには精算を取り消してください。</p>
+
+      <div class="modal-footer">
+        <button id="evDeleteBtn" class="del-btn">削除</button>
+        <span class="grow"></span>
+        <button id="evCancelBtn">閉じる</button>
+        <button id="evUnsettleBtn" class="ghost" style="display:none;">精算取消</button>
+        <button id="evSaveBtn" class="primary">保存</button>
+        <button id="evSettleBtn" class="warn">保存して精算</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 残高PDF発行モーダル（下部メモの入力） -->
+  <div id="pdfModal" class="modal-overlay">
+    <div class="modal">
+      <h3>残高PDFを発行</h3>
+      <p class="hint">下の3つはPDF右下に載るメモです（空欄でもOK）。内容は保存され、次回もそのまま使えます。</p>
+      <label class="fld-label">［徴収内容］</label>
+      <textarea id="pdfCollected" rows="2" placeholder="例: 6月プール代"></textarea>
+      <label class="fld-label">［徴収予定］</label>
+      <textarea id="pdfPlanned" rows="3" placeholder="例: 近医水（エントリー/レセ）&#10;西医体（エントリー/関連費）"></textarea>
+      <label class="fld-label">［昨月徴収歴］</label>
+      <textarea id="pdfHistory" rows="2" placeholder="例: 藤井2/西川2/山本夏5/…"></textarea>
+      <label class="fld-label">コメント（PDFには項目名なしで本文だけ載ります）</label>
+      <textarea id="pdfComment" rows="2" placeholder="例: お早めのご入金お願いします！"></textarea>
+      <div class="modal-footer">
+        <span class="grow"></span>
+        <button id="pdfCancelBtn">閉じる</button>
+        <button id="pdfGenBtn" class="primary">📄 PDFを発行</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">処理中...</div>
+
+  <?!= include('JavaScript'); ?>
+</body>
+</html>
