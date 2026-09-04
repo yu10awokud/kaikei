@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-bg text-ink antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP',
+    'Yu Gothic', Meiryo, sans-serif;
+}
+
+@layer components {
+  /* 画面の外枠。スマホでの利用が中心なので幅を絞る */
+  .container-app {
+    @apply mx-auto w-full max-w-2xl px-4 pb-24 pt-4;
+  }
+
+  .card {
+    @apply rounded-xl border border-line bg-white shadow-sm;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-1 rounded-lg px-4 py-2
+           text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brandDark;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-white text-ink hover:bg-bg;
+  }
+  .btn-danger {
+    @apply btn border border-danger bg-white text-danger hover:bg-red-50;
+  }
+
+  .field-label {
+    @apply mb-1 block text-sm font-bold text-ink;
+  }
+  .field-input {
+    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-base
+           outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold;
+  }
+}
