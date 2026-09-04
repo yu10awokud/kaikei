@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ExpenseList from '@/components/ExpenseList';
 import PracticeCalendar from '@/components/PracticeCalendar';
 import SummaryView from '@/components/SummaryView';
@@ -18,8 +18,26 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'summary', label: '集計' },
 ];
 
+function isTab(value: string | null): value is Tab {
+  return TABS.some((t) => t.key === value);
+}
+
 export default function AppTabs() {
   const [tab, setTab] = useState<Tab>('practice');
+
+  // '?tab=summary' のように指定されていれば、そのタブを開いた状態で始める。
+  // （以前の /summary などのURLは、ここへ転送される）
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (isTab(requested)) setTab(requested);
+  }, []);
+
+  /** タブを切り替えたら、URL も合わせておく（再読み込みしても同じタブに戻る） */
+  function selectTab(next: Tab) {
+    setTab(next);
+    const url = next === 'practice' ? '/' : `/?tab=${next}`;
+    window.history.replaceState(null, '', url);
+  }
 
   return (
     <div>
@@ -28,7 +46,7 @@ export default function AppTabs() {
           <button
             key={item.key}
             type="button"
-            onClick={() => setTab(item.key)}
+            onClick={() => selectTab(item.key)}
             className={`rounded-full border px-4 py-2.5 text-sm font-bold transition-colors ${
               tab === item.key
                 ? 'border-aqua-700 bg-aqua-700 text-white'
