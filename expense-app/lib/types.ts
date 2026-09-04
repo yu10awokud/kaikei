@@ -72,10 +72,19 @@ export type Expense = {
   updated_at: string;
 };
 
-/** 部員マスタ（既存テーブル。立替者を選ぶプルダウンに使う） */
-export type Member = {
+/**
+ * 立替者マスタ（このアプリ専用の payers テーブル）。
+ * 既存サイトの「メニュー担当者」のマスタとは別物で、
+ * こちらを直しても既存サイトには一切反映されない。
+ */
+export type Payer = {
   id: string;
   name: string;
+  /** false = 入力画面のプルダウンに出さない（記録は残したまま隠す） */
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 };
 
 /** 項目の表示名。その他のときは自由記述の中身を出す */

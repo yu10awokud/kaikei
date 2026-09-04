@@ -117,6 +117,12 @@ export function toMessage(error: { message?: string } | null): string {
   if (raw.includes('expenses_amount_check') || raw.includes('amount > 0')) {
     return '金額は 1 円以上で入力してください。';
   }
+  if (raw.includes('payers_name_key')) {
+    return 'その名前の立替者は、すでに登録されています。';
+  }
+  if (raw.includes('relation "public.payers" does not exist')) {
+    return 'payers テーブルがまだ作られていません。README の手順に沿って supabase/migration-payers.sql を実行してください。';
+  }
   if (raw.includes('relation "public.expenses" does not exist')) {
     return 'expenses テーブルがまだ作られていません。README の手順に沿って supabase/migration-expenses.sql を実行してください。';
   }

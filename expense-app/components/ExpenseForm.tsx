@@ -6,7 +6,7 @@ import { fetchJson, toErrorMessage } from '@/lib/client';
 import { formatDateFull } from '@/lib/date';
 import {
   CATEGORY_LABEL, CATEGORY_ORDER, SLOT_LABEL,
-  type Category, type Expense, type Member, type Practice,
+  type Category, type Expense, type Payer, type Practice,
 } from '@/lib/types';
 
 // ============================================================
@@ -19,12 +19,12 @@ const CUSTOM_PAYER = '__custom__';
 
 export type ExpenseFormProps = {
   practice: Practice;
-  members: Member[];
+  payers: Payer[];
   onClose: () => void;
   onSaved: (expense: Expense) => void;
 };
 
-export default function ExpenseForm({ practice, members, onClose, onSaved }: ExpenseFormProps) {
+export default function ExpenseForm({ practice, payers, onClose, onSaved }: ExpenseFormProps) {
   const [payerId, setPayerId] = useState('');
   const [customPayer, setCustomPayer] = useState('');
   const [amount, setAmount] = useState('');
@@ -48,7 +48,7 @@ export default function ExpenseForm({ practice, members, onClose, onSaved }: Exp
       const payerName =
         payerId === CUSTOM_PAYER
           ? customPayer.trim()
-          : members.find((m) => m.id === payerId)?.name ?? '';
+          : payers.find((p) => p.id === payerId)?.name ?? '';
 
       if (!payerName) throw new Error('立て替えた人を選んでください。');
 
@@ -122,9 +122,9 @@ export default function ExpenseForm({ practice, members, onClose, onSaved }: Exp
               required
             >
               <option value="">選んでください</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
+              {payers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
               <option value={CUSTOM_PAYER}>その他（名前を入力）</option>

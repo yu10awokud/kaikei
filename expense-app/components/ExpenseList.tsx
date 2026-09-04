@@ -6,7 +6,7 @@ import { EmptyBox, ErrorBox, Loading } from '@/components/StateBox';
 import { fetchJson, toErrorMessage } from '@/lib/client';
 import { formatDateWithWeekday } from '@/lib/date';
 import { formatYen } from '@/lib/format';
-import { SLOT_LABEL, categoryLabel, type Expense, type Member } from '@/lib/types';
+import { SLOT_LABEL, categoryLabel, type Expense, type Payer } from '@/lib/types';
 
 // ============================================================
 // 立替一覧タブ
@@ -16,7 +16,7 @@ import { SLOT_LABEL, categoryLabel, type Expense, type Member } from '@/lib/type
 // ============================================================
 
 type ExpensesResponse = { expenses: Expense[]; receiptUrls: Record<string, string> };
-type MembersResponse = { members: Member[] };
+type PayersResponse = { payers: Payer[] };
 
 type StatusFilter = 'all' | 'unsettled' | 'settled';
 
@@ -32,7 +32,7 @@ export default function ExpenseList({ active }: { active: boolean }) {
 
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
-  const [members, setMembers] = useState<Member[]>([]);
+  const [payers, setPayers] = useState<Payer[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +65,11 @@ export default function ExpenseList({ active }: { active: boolean }) {
   }, [active, load]);
 
   useEffect(() => {
-    if (!active || members.length > 0) return;
-    fetchJson<MembersResponse>('/api/members')
-      .then((res) => setMembers(res.members))
-      .catch(() => setMembers([]));
-  }, [active, members.length]);
+    if (!active || payers.length > 0) return;
+    fetchJson<PayersResponse>('/api/payers')
+      .then((res) => setPayers(res.payers))
+      .catch(() => setPayers([]));
+  }, [active, payers.length]);
 
   async function toggleStatus(expense: Expense) {
     const next = expense.status === 'settled' ? 'unsettled' : 'settled';
@@ -127,9 +127,9 @@ export default function ExpenseList({ active }: { active: boolean }) {
             onChange={(e) => setPayer(e.target.value)}
           >
             <option value="">全員</option>
-            {members.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
+            {payers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </select>

@@ -8,7 +8,7 @@ import { ErrorBox, Loading } from '@/components/StateBox';
 import { fetchJson, toErrorMessage } from '@/lib/client';
 import { addMonths, formatMonthTitle, monthRange, todayKey } from '@/lib/date';
 import { formatYen } from '@/lib/format';
-import type { Expense, Member, Practice } from '@/lib/types';
+import type { Expense, Payer, Practice } from '@/lib/types';
 
 // ============================================================
 // 練習タブ
@@ -18,7 +18,7 @@ import type { Expense, Member, Practice } from '@/lib/types';
 // ============================================================
 
 type PracticeResponse = { practices: Practice[] };
-type MembersResponse = { members: Member[] };
+type PayersResponse = { payers: Payer[] };
 type ExpensesResponse = { expenses: Expense[] };
 
 /** 日付ごとにまとめ直す */
@@ -41,7 +41,7 @@ export default function PracticeCalendar() {
 
   const [practices, setPractices] = useState<Practice[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [payers, setPayers] = useState<Payer[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,14 +63,14 @@ export default function PracticeCalendar() {
       );
       setPractices(practiceRes.practices);
 
-      // 立替の金額と部員マスタは「出れば嬉しい」情報なので、
+      // 立替の金額と立替者マスタは「出れば嬉しい」情報なので、
       // 失敗してもカレンダーは消さずにそのまま表示する
-      const [expensesRes, membersRes] = await Promise.allSettled([
+      const [expensesRes, payersRes] = await Promise.allSettled([
         fetchJson<ExpensesResponse>(`/api/expenses?from=${start}&to=${end}`),
-        fetchJson<MembersResponse>('/api/members'),
+        fetchJson<PayersResponse>('/api/payers?active=1'),
       ]);
       if (expensesRes.status === 'fulfilled') setExpenses(expensesRes.value.expenses);
-      if (membersRes.status === 'fulfilled') setMembers(membersRes.value.members);
+      if (payersRes.status === 'fulfilled') setPayers(payersRes.value.payers);
     } catch (e) {
       setError(toErrorMessage(e));
     } finally {
@@ -182,7 +182,7 @@ export default function PracticeCalendar() {
       {target && (
         <ExpenseForm
           practice={target}
-          members={members}
+          payers={payers}
           onClose={() => setTarget(null)}
           onSaved={handleSaved}
         />
