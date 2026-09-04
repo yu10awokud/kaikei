@@ -24,6 +24,8 @@ export type Practice = {
   date: string; // 'YYYY-MM-DD'
   slot: Slot;
   location: string; // 練習場所の名前（未設定なら '場所未定'）
+  /** 練習場所の色（既存サイトの場所マスタで決めている色） */
+  color: string;
   /** オフ（練習なし）の日か */
   isOff: boolean;
 };

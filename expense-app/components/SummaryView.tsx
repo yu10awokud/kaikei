@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyBox, ErrorBox, Loading } from '@/components/StateBox';
 import { fetchJson, toErrorMessage } from '@/lib/client';
-import { formatYen, shiftDateKey } from '@/lib/format';
+import { shiftDateKey } from '@/lib/date';
+import { formatYen } from '@/lib/format';
 import { CATEGORY_LABEL, CATEGORY_ORDER, type Category, type Expense } from '@/lib/types';
 
 // ============================================================
-// 集計
+// 集計タブ
 //   ・部員ごとの立替合計と、まだ返していない金額（未精算）
 //   ・項目ごとの合計
 //   ・CSV ダウンロード
@@ -24,7 +25,7 @@ type PayerRow = {
   count: number;
 };
 
-export default function SummaryView() {
+export default function SummaryView({ active }: { active: boolean }) {
   const [from, setFrom] = useState(() => shiftDateKey(-90));
   const [to, setTo] = useState(() => shiftDateKey(14));
 
@@ -47,9 +48,10 @@ export default function SummaryView() {
     }
   }, [queryString]);
 
+  // このタブを開いているときだけ読みに行く
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (active) void load();
+  }, [active, load]);
 
   const { payerRows, categoryRows, total, unsettledTotal } = useMemo(() => {
     const byPayer = new Map<string, PayerRow>();
@@ -89,23 +91,26 @@ export default function SummaryView() {
   }, [expenses]);
 
   return (
-    <div className="space-y-3">
-      <h1 className="text-lg font-bold">集計</h1>
+    <div>
+      <div className="section-title">
+        <h2>集計</h2>
+        <span>Summary</span>
+      </div>
 
-      <div className="card px-4 py-3">
+      <div className="card mb-4 px-4 py-3.5">
         <span className="field-label">集計する期間</span>
         <div className="flex items-center gap-2">
           <input
             type="date"
-            className="field-input"
+            className="field"
             value={from}
             max={to}
             onChange={(e) => setFrom(e.target.value)}
           />
-          <span className="text-sm text-sub">〜</span>
+          <span className="text-[13px] text-ink-faint">〜</span>
           <input
             type="date"
-            className="field-input"
+            className="field"
             value={to}
             min={from}
             onChange={(e) => setTo(e.target.value)}
@@ -113,19 +118,25 @@ export default function SummaryView() {
         </div>
       </div>
 
-      {error && <ErrorBox message={error} onRetry={() => void load()} />}
+      {error && (
+        <div className="mb-3">
+          <ErrorBox message={error} onRetry={() => void load()} />
+        </div>
+      )}
       {loading && <Loading label="集計しています…" />}
 
       {!loading && !error && (
         <>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="card px-4 py-3">
-              <p className="text-xs text-sub">立替の合計</p>
-              <p className="mt-1 text-xl font-bold">{formatYen(total)}</p>
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <div className="card px-4 py-3.5">
+              <p className="text-[11px] font-medium text-ink-faint">立替の合計</p>
+              <p className="font-en mt-1 text-xl font-bold text-ink">{formatYen(total)}</p>
             </div>
-            <div className="card px-4 py-3">
-              <p className="text-xs text-sub">未精算の合計</p>
-              <p className="mt-1 text-xl font-bold text-danger">{formatYen(unsettledTotal)}</p>
+            <div className="card px-4 py-3.5">
+              <p className="text-[11px] font-medium text-ink-faint">未精算の合計</p>
+              <p className="font-en mt-1 text-xl font-bold text-alert">
+                {formatYen(unsettledTotal)}
+              </p>
             </div>
           </div>
 
@@ -133,27 +144,33 @@ export default function SummaryView() {
             <EmptyBox>この期間には立替の記録がありません。</EmptyBox>
           ) : (
             <>
-              <section className="card overflow-hidden">
-                <h2 className="border-b border-line px-4 py-2 text-sm font-bold">部員ごと</h2>
+              <section className="card mb-4 overflow-hidden">
+                <h3 className="border-b border-line px-4 py-2.5 text-[13px] font-bold text-ink">
+                  部員ごと
+                </h3>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-[13px]">
                     <thead>
-                      <tr className="border-b border-line text-left text-xs text-sub">
-                        <th className="px-4 py-2 font-normal">名前</th>
-                        <th className="px-4 py-2 text-right font-normal">件数</th>
-                        <th className="px-4 py-2 text-right font-normal">立替合計</th>
-                        <th className="px-4 py-2 text-right font-normal">未精算</th>
+                      <tr className="border-b border-line text-left text-[11px] text-ink-faint">
+                        <th className="px-4 py-2 font-medium">名前</th>
+                        <th className="px-4 py-2 text-right font-medium">件数</th>
+                        <th className="px-4 py-2 text-right font-medium">立替合計</th>
+                        <th className="px-4 py-2 text-right font-medium">未精算</th>
                       </tr>
                     </thead>
                     <tbody>
                       {payerRows.map((row) => (
                         <tr key={row.key} className="border-b border-line last:border-0">
-                          <td className="px-4 py-2 font-bold">{row.name}</td>
-                          <td className="px-4 py-2 text-right text-sub">{row.count}</td>
-                          <td className="px-4 py-2 text-right">{formatYen(row.total)}</td>
+                          <td className="px-4 py-2.5 font-bold text-ink">{row.name}</td>
+                          <td className="font-en px-4 py-2.5 text-right text-ink-faint">
+                            {row.count}
+                          </td>
+                          <td className="font-en px-4 py-2.5 text-right text-ink-soft">
+                            {formatYen(row.total)}
+                          </td>
                           <td
-                            className={`px-4 py-2 text-right font-bold ${
-                              row.unsettled > 0 ? 'text-danger' : 'text-sub'
+                            className={`font-en px-4 py-2.5 text-right font-bold ${
+                              row.unsettled > 0 ? 'text-alert' : 'text-ink-faint'
                             }`}
                           >
                             {row.unsettled > 0 ? formatYen(row.unsettled) : '—'}
@@ -165,16 +182,18 @@ export default function SummaryView() {
                 </div>
               </section>
 
-              <section className="card overflow-hidden">
-                <h2 className="border-b border-line px-4 py-2 text-sm font-bold">項目ごと</h2>
+              <section className="card mb-4 overflow-hidden">
+                <h3 className="border-b border-line px-4 py-2.5 text-[13px] font-bold text-ink">
+                  項目ごと
+                </h3>
                 <ul>
                   {categoryRows.map((row) => (
                     <li
                       key={row.key}
-                      className="flex items-center justify-between border-b border-line px-4 py-2 text-sm last:border-0"
+                      className="flex items-center justify-between border-b border-line px-4 py-2.5 text-[13px] last:border-0"
                     >
-                      <span>{row.label}</span>
-                      <span className="font-bold">{formatYen(row.amount)}</span>
+                      <span className="text-ink-soft">{row.label}</span>
+                      <span className="font-en font-bold text-ink">{formatYen(row.amount)}</span>
                     </li>
                   ))}
                 </ul>
@@ -182,10 +201,13 @@ export default function SummaryView() {
             </>
           )}
 
-          <a className="btn-ghost w-full" href={`/api/expenses/csv?${queryString}`}>
+          <a
+            className="btn block w-full text-center"
+            href={`/api/expenses/csv?${queryString}`}
+          >
             この期間の立替を CSV でダウンロード
           </a>
-          <p className="text-xs text-sub">
+          <p className="mt-2 text-[11px] text-ink-faint">
             CSV は Excel でそのまま開けます（文字化けしないようにしてあります）。
           </p>
         </>

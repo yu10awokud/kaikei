@@ -4,14 +4,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { ReceiptThumb, ReceiptViewer } from '@/components/ReceiptThumb';
 import { EmptyBox, ErrorBox, Loading } from '@/components/StateBox';
 import { fetchJson, toErrorMessage } from '@/lib/client';
-import { formatDate, formatYen } from '@/lib/format';
-import {
-  SLOT_LABEL, categoryLabel,
-  type Expense, type Member,
-} from '@/lib/types';
+import { formatDateWithWeekday } from '@/lib/date';
+import { formatYen } from '@/lib/format';
+import { SLOT_LABEL, categoryLabel, type Expense, type Member } from '@/lib/types';
 
 // ============================================================
-// 立替一覧
+// 立替一覧タブ
 //   ・立て替えた人と、精算状況で絞り込める
 //   ・領収書はサムネイル表示、タップで拡大
 //   ・精算済みのチェックと、記録の取り消し（論理削除）ができる
@@ -22,7 +20,13 @@ type MembersResponse = { members: Member[] };
 
 type StatusFilter = 'all' | 'unsettled' | 'settled';
 
-export default function ExpenseList() {
+const STATUS_TABS: [StatusFilter, string][] = [
+  ['all', 'すべて'],
+  ['unsettled', '未精算'],
+  ['settled', '精算済み'],
+];
+
+export default function ExpenseList({ active }: { active: boolean }) {
   const [payer, setPayer] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -54,16 +58,18 @@ export default function ExpenseList() {
     }
   }, [queryString]);
 
+  // このタブを開いているときだけ読みに行く。
+  // （タブに戻ってくるたびに読み直すので、常に最新が出る）
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (active) void load();
+  }, [active, load]);
 
-  // 絞り込みの選択肢に使う部員マスタは一度だけ取れば十分
   useEffect(() => {
+    if (!active || members.length > 0) return;
     fetchJson<MembersResponse>('/api/members')
       .then((res) => setMembers(res.members))
       .catch(() => setMembers([]));
-  }, []);
+  }, [active, members.length]);
 
   async function toggleStatus(expense: Expense) {
     const next = expense.status === 'settled' ? 'unsettled' : 'settled';
@@ -75,9 +81,7 @@ export default function ExpenseList() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: next }),
       });
-      setExpenses((current) =>
-        current.map((e) => (e.id === expense.id ? res.expense : e)),
-      );
+      setExpenses((current) => current.map((e) => (e.id === expense.id ? res.expense : e)));
     } catch (e) {
       setError(toErrorMessage(e));
     } finally {
@@ -86,7 +90,7 @@ export default function ExpenseList() {
   }
 
   async function remove(expense: Expense) {
-    const label = `${formatDate(expense.event_date)} ${expense.payer_name} ${formatYen(expense.amount)}`;
+    const label = `${formatDateWithWeekday(expense.event_date)} ${expense.payer_name} ${formatYen(expense.amount)}`;
     if (!window.confirm(`この立替の記録を取り消します。よろしいですか？\n\n${label}`)) return;
 
     setBusyId(expense.id);
@@ -104,21 +108,29 @@ export default function ExpenseList() {
   const total = expenses.reduce((sum, e) => sum + e.amount, 0);
 
   return (
-    <div className="space-y-3">
-      <h1 className="text-lg font-bold">立替一覧</h1>
+    <div>
+      <div className="section-title">
+        <h2>立替一覧</h2>
+        <span>Records</span>
+      </div>
 
-      <div className="card space-y-2 px-4 py-3">
+      {/* 絞り込み */}
+      <div className="card mb-4 space-y-3 px-4 py-3.5">
         <div>
-          <label className="field-label" htmlFor="payer-filter">立て替えた人</label>
+          <label className="field-label" htmlFor="payer-filter">
+            立て替えた人
+          </label>
           <select
             id="payer-filter"
-            className="field-input"
+            className="field"
             value={payer}
             onChange={(e) => setPayer(e.target.value)}
           >
             <option value="">全員</option>
             {members.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
             ))}
           </select>
         </div>
@@ -126,19 +138,15 @@ export default function ExpenseList() {
         <div>
           <span className="field-label">精算状況</span>
           <div className="grid grid-cols-3 gap-2">
-            {([
-              ['all', 'すべて'],
-              ['unsettled', '未精算'],
-              ['settled', '精算済み'],
-            ] as [StatusFilter, string][]).map(([key, label]) => (
+            {STATUS_TABS.map(([key, label]) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setStatusFilter(key)}
-                className={`btn ${
+                className={`rounded-full border px-3 py-2 text-[13px] font-bold transition-colors ${
                   statusFilter === key
-                    ? 'bg-brand text-white'
-                    : 'border border-line bg-white text-ink hover:bg-bg'
+                    ? 'border-aqua-700 bg-aqua-700 text-white'
+                    : 'border-line bg-white text-ink-soft active:bg-line-soft'
                 }`}
               >
                 {label}
@@ -147,12 +155,17 @@ export default function ExpenseList() {
           </div>
         </div>
 
-        <p className="pt-1 text-sm text-sub">
-          {expenses.length}件 / 合計 <span className="font-bold text-ink">{formatYen(total)}</span>
+        <p className="text-[13px] text-ink-soft">
+          {expenses.length}件 ／ 合計{' '}
+          <span className="font-en font-bold text-ink">{formatYen(total)}</span>
         </p>
       </div>
 
-      {error && <ErrorBox message={error} onRetry={() => void load()} />}
+      {error && (
+        <div className="mb-3">
+          <ErrorBox message={error} onRetry={() => void load()} />
+        </div>
+      )}
       {loading && <Loading label="立替を読み込んでいます…" />}
       {!loading && !error && expenses.length === 0 && (
         <EmptyBox>条件に合う立替の記録がありません。</EmptyBox>
@@ -164,43 +177,45 @@ export default function ExpenseList() {
           const busy = busyId === expense.id;
 
           return (
-            <li key={expense.id} className="card px-4 py-3">
+            <li key={expense.id} className="card px-4 py-3.5">
               <div className="flex gap-3">
                 {url ? (
                   <ReceiptThumb url={url} onOpen={() => setViewing(url)} />
                 ) : (
-                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-line text-xs text-sub">
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-dashed border-line text-[11px] text-ink-faint">
                     写真なし
                   </div>
                 )}
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className="truncate font-bold">{expense.payer_name}</p>
-                    <p className="shrink-0 text-base font-bold">{formatYen(expense.amount)}</p>
+                    <p className="truncate text-sm font-bold text-ink">{expense.payer_name}</p>
+                    <p className="font-en shrink-0 text-base font-bold text-ink">
+                      {formatYen(expense.amount)}
+                    </p>
                   </div>
 
-                  <p className="truncate text-sm text-sub">
-                    {formatDate(expense.event_date)}
+                  <p className="truncate text-[13px] text-ink-soft">
+                    {formatDateWithWeekday(expense.event_date)}
                     {expense.event_slot !== 'all_day' && ` ${SLOT_LABEL[expense.event_slot]}`}
-                    {expense.event_location && ` / ${expense.event_location}`}
+                    {expense.event_location && ` ／ ${expense.event_location}`}
                   </p>
 
                   <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <span className="badge bg-bg text-sub">{categoryLabel(expense)}</span>
+                    <span className="tag bg-line-soft text-ink-soft">{categoryLabel(expense)}</span>
                     {expense.needs_refund ? (
                       expense.status === 'settled' ? (
-                        <span className="badge bg-green-100 text-green-800">精算済み</span>
+                        <span className="tag bg-aqua-50 text-aqua-700">精算済み</span>
                       ) : (
-                        <span className="badge bg-amber-100 text-amber-800">未精算</span>
+                        <span className="tag bg-alert-soft text-alert">未精算</span>
                       )
                     ) : (
-                      <span className="badge bg-bg text-sub">返金不要</span>
+                      <span className="tag bg-line-soft text-ink-faint">返金不要</span>
                     )}
                   </div>
 
                   {expense.memo && (
-                    <p className="mt-1 break-words text-sm text-sub">{expense.memo}</p>
+                    <p className="mt-1 break-words text-[13px] text-ink-soft">{expense.memo}</p>
                   )}
                 </div>
               </div>
@@ -209,7 +224,7 @@ export default function ExpenseList() {
                 {expense.needs_refund && (
                   <button
                     type="button"
-                    className="btn-ghost flex-1"
+                    className="btn flex-1"
                     disabled={busy}
                     onClick={() => void toggleStatus(expense)}
                   >
@@ -218,7 +233,7 @@ export default function ExpenseList() {
                 )}
                 <button
                   type="button"
-                  className="btn-danger"
+                  className="btn text-alert"
                   disabled={busy}
                   onClick={() => void remove(expense)}
                 >

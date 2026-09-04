@@ -73,7 +73,7 @@ export default function ReceiptPicker({ file, onChange }: ReceiptPickerProps) {
       <div className="flex gap-2">
         <button
           type="button"
-          className="btn-ghost flex-1"
+          className="btn flex-1 py-2.5"
           disabled={busy}
           onClick={() => cameraRef.current?.click()}
         >
@@ -81,7 +81,7 @@ export default function ReceiptPicker({ file, onChange }: ReceiptPickerProps) {
         </button>
         <button
           type="button"
-          className="btn-ghost flex-1"
+          className="btn flex-1 py-2.5"
           disabled={busy}
           onClick={() => libraryRef.current?.click()}
         >
@@ -106,8 +106,8 @@ export default function ReceiptPicker({ file, onChange }: ReceiptPickerProps) {
         onChange={handlePick}
       />
 
-      {busy && <p className="mt-2 text-sm text-sub">写真を縮小しています…</p>}
-      {error && <p className="mt-2 text-sm font-bold text-danger">{error}</p>}
+      {busy && <p className="mt-2 text-[13px] text-ink-faint">写真を縮小しています…</p>}
+      {error && <p className="mt-2 text-[13px] font-bold text-alert">{error}</p>}
 
       {previewUrl && (
         <div className="mt-3 flex items-start gap-3">
@@ -116,12 +116,12 @@ export default function ReceiptPicker({ file, onChange }: ReceiptPickerProps) {
           <img
             src={previewUrl}
             alt="選んだ領収書のプレビュー"
-            className="h-24 w-24 rounded-lg border border-line object-cover"
+            className="h-24 w-24 rounded-xl border border-line object-cover"
           />
-          <div className="text-sm text-sub">
+          <div className="text-[13px] text-ink-soft">
             <p>縮小して保存します</p>
             {info && <p className="mt-0.5">{info}</p>}
-            <button type="button" className="mt-2 text-danger underline" onClick={clear}>
+            <button type="button" className="mt-2 text-alert underline" onClick={clear}>
               取り消す
             </button>
           </div>
@@ -129,7 +129,7 @@ export default function ReceiptPicker({ file, onChange }: ReceiptPickerProps) {
       )}
 
       {!previewUrl && !busy && (
-        <p className="mt-2 text-xs text-sub">
+        <p className="mt-2 text-[11px] text-ink-faint">
           写真は自動で縮小してから保存します。領収書が無い支出は、写真なしでも登録できます。
         </p>
       )}

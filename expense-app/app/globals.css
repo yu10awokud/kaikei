@@ -2,49 +2,93 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   全体の基本スタイル（既存サイトと同じ ミニマル・白基調＋ブルー）
+   ============================================================ */
+
 :root {
   color-scheme: light;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  @apply bg-bg text-ink antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Noto Sans JP',
-    'Yu Gothic', Meiryo, sans-serif;
+  background-color: #ffffff;
+  color: theme('colors.ink.DEFAULT');
+  font-family: theme('fontFamily.sans');
+  line-height: 1.7;
+  letter-spacing: 0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+/* 数字・英字を Inter で表示したい箇所に付ける */
+.font-en {
+  font-family: theme('fontFamily.en');
+  font-feature-settings: 'tnum' 1; /* 数字の幅を揃える */
 }
 
 @layer components {
-  /* 画面の外枠。スマホでの利用が中心なので幅を絞る */
-  .container-app {
-    @apply mx-auto w-full max-w-2xl px-4 pb-24 pt-4;
+  .tap {
+    @apply transition-colors duration-100 active:bg-line-soft;
+  }
+
+  /* セクション見出し（日本語の見出し＋右に小さな英字） */
+  .section-title {
+    @apply mb-2.5 flex items-baseline justify-between gap-3;
+  }
+  .section-title h2 {
+    @apply text-[15px] font-bold text-ink;
+  }
+  .section-title span {
+    @apply font-en text-[10px] font-medium uppercase tracking-[0.16em] text-ink-faint;
   }
 
   .card {
-    @apply rounded-xl border border-line bg-white shadow-sm;
+    @apply rounded-card border border-line bg-white shadow-card
+           transition-colors duration-150 hover:border-line-soft;
+  }
+
+  .tag {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight;
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-1 rounded-lg px-4 py-2
-           text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50;
+    @apply rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-medium text-ink-soft tap
+           disabled:opacity-40;
   }
+
   .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brandDark;
+    @apply rounded-full bg-aqua-600 px-4 py-3 text-sm font-bold text-white
+           transition-opacity active:opacity-80 disabled:opacity-40;
   }
-  .btn-ghost {
-    @apply btn border border-line bg-white text-ink hover:bg-bg;
+
+  .btn-quiet {
+    @apply rounded-full border border-line bg-white px-4 py-3 text-sm font-bold text-ink-soft tap
+           disabled:opacity-40;
   }
-  .btn-danger {
-    @apply btn border border-danger bg-white text-danger hover:bg-red-50;
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-base text-ink
+           focus:border-aqua-400 focus:outline-none focus:ring-2 focus:ring-aqua-100;
   }
 
   .field-label {
-    @apply mb-1 block text-sm font-bold text-ink;
+    @apply mb-1.5 block text-[13px] font-bold text-ink;
   }
-  .field-input {
-    @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-base
-           outline-none focus:border-brand focus:ring-2 focus:ring-brand/20;
-  }
+}
 
-  .badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold;
-  }
+/* iOS で入力欄をタップしたときに画面が拡大しないよう 16px 以上にする */
+select,
+input,
+textarea {
+  font-size: 16px;
 }

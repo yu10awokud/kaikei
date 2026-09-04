@@ -6,14 +6,16 @@ export const dynamic = 'force-dynamic';
 
 // 既存カレンダーから読むのは「日付」「枠」「練習場所」だけ。
 // メニュー担当者（member）は select にも含めない。
-const PRACTICE_SELECT = 'id, date, slot, place:places(name, is_off)';
+const PRACTICE_SELECT = 'id, date, slot, place:places(name, color, is_off)';
+
+type PlaceRow = { name: string; color: string; is_off: boolean };
 
 type Row = {
   id: string;
   date: string;
   slot: Slot;
   // Supabase の型推論では配列にも単体にもなり得るので、両方受けられるようにする
-  place: { name: string; is_off: boolean } | { name: string; is_off: boolean }[] | null;
+  place: PlaceRow | PlaceRow[] | null;
 };
 
 /** 参照先の place を 1 件に正規化する */
@@ -58,6 +60,7 @@ export async function GET(req: Request) {
       date: row.date,
       slot: row.slot,
       location: place?.name ?? '場所未定',
+      color: place?.color ?? '#C9D2DA',
       isOff: place?.is_off ?? false,
     };
   });

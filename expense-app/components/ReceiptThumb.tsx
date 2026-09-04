@@ -13,7 +13,7 @@ export function ReceiptThumb({ url, onOpen }: { url: string; onOpen: () => void 
     <button
       type="button"
       onClick={onOpen}
-      className="shrink-0 overflow-hidden rounded-lg border border-line"
+      className="shrink-0 overflow-hidden rounded-xl border border-line"
       aria-label="領収書を拡大表示する"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -34,7 +34,7 @@ export function ReceiptViewer({ url, onClose }: { url: string; onClose: () => vo
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 p-4"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-ink/80 p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -43,10 +43,10 @@ export function ReceiptViewer({ url, onClose }: { url: string; onClose: () => vo
       <img
         src={url}
         alt="領収書（拡大）"
-        className="max-h-[80vh] max-w-full rounded-lg object-contain"
+        className="max-h-[80vh] max-w-full rounded-card object-contain"
         onClick={(e) => e.stopPropagation()}
       />
-      <button type="button" className="btn-ghost mt-4" onClick={onClose}>
+      <button type="button" className="btn mt-4" onClick={onClose}>
         閉じる
       </button>
     </div>
