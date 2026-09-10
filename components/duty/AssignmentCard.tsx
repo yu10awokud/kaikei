@@ -36,7 +36,11 @@ export default function AssignmentCard({
   const accent = place?.color ?? '#C9D2DA';
 
   return (
-    <div className={`overflow-hidden rounded-md bg-white ${compact ? 'px-1 py-[3px]' : 'px-1.5 py-1'}`}>
+    <div
+      className={`overflow-hidden rounded-md bg-white ${
+        compact ? 'px-0.5 py-[3px]' : 'px-1.5 py-1'
+      }`}
+    >
       {slotLabel && (
         <div className={`font-medium text-ink-faint ${compact ? 'text-[9px] leading-tight' : 'text-[10px]'}`}>
           {slotLabel}
@@ -52,10 +56,14 @@ export default function AssignmentCard({
         {memberName}
       </div>
 
-      {/* 2 段目：練習場所（控えめに） */}
+      {/* 2 段目：練習場所（控えめに）
+          マスが狭いので文字を詰めて、省略記号を出さずに全部見せる
+          （長い場所名は管理画面で略称にしておく想定） */}
       {place && (
         <div
-          className={`truncate font-medium ${compact ? 'text-[9px] leading-tight' : 'text-[11px]'}`}
+          className={`whitespace-nowrap font-medium ${
+            compact ? 'text-[8px] leading-[1.3] tracking-[-0.02em] sm:text-[10px]' : 'text-[11px]'
+          }`}
           style={{ color: accent }}
         >
           {place.name}
