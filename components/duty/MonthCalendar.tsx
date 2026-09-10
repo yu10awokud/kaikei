@@ -54,7 +54,8 @@ export default function MonthCalendar({
               type="button"
               onClick={() => onSelectDate(cell.key)}
               className={`
-                min-h-[86px] p-0.5 text-left align-top transition-colors sm:min-h-[104px] sm:p-1.5
+                flex min-h-[86px] flex-col items-stretch justify-start p-0.5 text-left align-top
+                transition-colors sm:min-h-[104px] sm:p-1.5
                 ${cell.inMonth ? 'bg-white' : 'bg-line-soft/40'}
                 ${index % 7 !== 6 ? 'border-r' : ''}
                 ${index < 35 ? 'border-b' : ''}
