@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   全体の基本スタイル（既存サイトと同じ ミニマル・白基調＋ブルー）
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: #ffffff;
+  color: theme('colors.ink.DEFAULT');
+  font-family: theme('fontFamily.sans');
+  line-height: 1.7;
+  letter-spacing: 0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
+}
+
+/* 数字・英字を Inter で表示したい箇所に付ける */
+.font-en {
+  font-family: theme('fontFamily.en');
+  font-feature-settings: 'tnum' 1; /* 数字の幅を揃える */
+}
+
+@layer components {
+  .tap {
+    @apply transition-colors duration-100 active:bg-line-soft;
+  }
+
+  /* セクション見出し（日本語の見出し＋右に小さな英字） */
+  .section-title {
+    @apply mb-2.5 flex items-baseline justify-between gap-3;
+  }
+  .section-title h2 {
+    @apply text-[15px] font-bold text-ink;
+  }
+  .section-title span {
+    @apply font-en text-[10px] font-medium uppercase tracking-[0.16em] text-ink-faint;
+  }
+
+  .card {
+    @apply rounded-card border border-line bg-white shadow-card
+           transition-colors duration-150 hover:border-line-soft;
+  }
+
+  .tag {
+    @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight;
+  }
+
+  .btn {
+    @apply rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-medium text-ink-soft tap
+           disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply rounded-full bg-aqua-600 px-4 py-3 text-sm font-bold text-white
+           transition-opacity active:opacity-80 disabled:opacity-40;
+  }
+
+  .btn-quiet {
+    @apply rounded-full border border-line bg-white px-4 py-3 text-sm font-bold text-ink-soft tap
+           disabled:opacity-40;
+  }
+
+  .field {
+    @apply w-full rounded-xl border border-line bg-white px-3 py-2.5 text-base text-ink
+           focus:border-aqua-400 focus:outline-none focus:ring-2 focus:ring-aqua-100;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-[13px] font-bold text-ink;
+  }
+}
+
+/* iOS で入力欄をタップしたときに画面が拡大しないよう 16px 以上にする */
+select,
+input,
+textarea {
+  font-size: 16px;
+}
