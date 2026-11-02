@@ -173,6 +173,12 @@ function buildMonthCells() {
       events.forEach(e => cell.blocks.push({ kind: 'event', color: e.color, s: e }));
       // 右上ノート（赤・小）：祝日名 ＋ 練習のブログ担当
       cell.note = buildNoteText(holiday, practices);
+    } else if (mdMap[dStr]) {
+      // ★月外（前月末・翌月頭）の例外★
+      // 月をまたぐ予定（年末年始オフなど）だけは、塗りを翌月・前月まで続ける。
+      // 練習や単発イベントは月外には出さない（当月のカレンダーを汚さないため）
+      const md = mdMap[dStr];
+      cell.blocks.push({ kind: 'md', color: md.color, title: md.title, sched: md.sched });
     }
     cells.push(cell);
   }
@@ -214,8 +220,19 @@ function render() {
       num.textContent = cell.dayNum;
       dayEl.appendChild(num);
 
-      // 前月末・翌月頭は番号のみ（グレー）で、予定・クリックなし
-      if (!cell.inMonth) { grid.appendChild(dayEl); continue; }
+      // 前月末・翌月頭は番号のみ（グレー）。
+      // ただし月をまたぐ予定の塗りだけは続け、クリックで編集もできるようにする
+      if (!cell.inMonth) {
+        if (blocks.length) {
+          const b = blocks[0];
+          dayEl.classList.add('filled');
+          dayEl.style.background = hexToRgba(b.color, 0.16);
+          dayEl.appendChild(buildCellBody(b));
+          dayEl.addEventListener('click', function () { openModalForEdit(b.s || b.sched, dStr); });
+        }
+        grid.appendChild(dayEl);
+        continue;
+      }
       dayEl.dataset.date = dStr;
 
       if (cell.note) {
@@ -476,7 +493,11 @@ function drawJpgCell_(ctx, cell, x, y, w, h) {
                 : (cell.dow === 6) ? '#2b5ed6' : '#222222';
   ctx.fillText(String(cell.dayNum), x + 14, y + 12);
 
-  if (!cell.inMonth) return;
+  // 月外は、月をまたぐ予定の塗り＋タイトルだけ描く（塗りは上で済んでいる）
+  if (!cell.inMonth) {
+    if (blocks.length) drawJpgCellBody_(ctx, blocks[0], x, y, w, h, true);
+    return;
+  }
 
   // 右上ノート（祝日名・ブログ担当。赤・小）
   if (cell.note) {

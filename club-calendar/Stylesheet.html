@@ -79,6 +79,8 @@ body {
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .day.other-month { background: #ffffff; cursor: default; }
+/* 月をまたぐ予定で塗られた月外のマスは、クリックで編集できる */
+.day.other-month.filled { cursor: pointer; }
 
 /* 日付番号（左上） */
 .day-num {
